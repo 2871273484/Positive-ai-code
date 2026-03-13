@@ -7,6 +7,8 @@ spring:
     url: jdbc:mysql://localhost:3306/positive_ai_code?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
     username: root
     password: 628965
+  profiles:
+    active: local
 server:
   port: 8080
   servlet:
