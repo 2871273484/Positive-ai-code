@@ -10,7 +10,7 @@ import com.xr.positiveaicode.constant.UserConstant;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
 import com.xr.positiveaicode.exception.ThrowUtils;
-import com.xr.positiveaicode.model.dto.*;
+import com.xr.positiveaicode.model.dto.user.*;
 import com.xr.positiveaicode.model.entity.User;
 import com.xr.positiveaicode.model.vo.LoginUserVO;
 import com.xr.positiveaicode.model.vo.UserVO;

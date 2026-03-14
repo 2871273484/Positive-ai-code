@@ -2,8 +2,7 @@ package com.xr.positiveaicode.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
-import com.xr.positiveaicode.common.BaseResponse;
-import com.xr.positiveaicode.model.dto.UserQueryRequest;
+import com.xr.positiveaicode.model.dto.user.UserQueryRequest;
 import com.xr.positiveaicode.model.entity.User;
 import com.xr.positiveaicode.model.vo.LoginUserVO;
 import com.xr.positiveaicode.model.vo.UserVO;
