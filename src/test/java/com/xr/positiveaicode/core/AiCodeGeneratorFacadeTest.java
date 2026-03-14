@@ -39,4 +39,22 @@ class AiCodeGeneratorFacadeTest {
     @Test
     void testGenerateAndSaveCode1() {
     }
+
+    @Test
+    void testGenerateAndSaveCodeStream() {
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream("生成一个音乐网站，不超过二十行代码", CodeGenTypeEnum.MULTI_FILE);
+        List<String> result = codeStream.collectList().block();
+        Assertions.assertNotNull(result);
+        String completeContent = String.join("", result);
+        Assertions.assertNotNull(completeContent);
+    }
+
+    @Test
+    void testGenerateAndSaveCodeStreamHtml() {
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream("生成一个音乐网站，不超过二十行代码", CodeGenTypeEnum.HTML);
+        List<String> result = codeStream.collectList().block();
+        Assertions.assertNotNull(result);
+        String completeContent = String.join("", result);
+        Assertions.assertNotNull(completeContent);
+    }
 }
