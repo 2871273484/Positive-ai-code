@@ -1,6 +1,7 @@
 package com.xr.positiveaicode.core;
 
 import com.xr.positiveaicode.ai.AiCodeGeneratorService;
+import com.xr.positiveaicode.ai.AiCodeGeneratorServiceFactory;
 import com.xr.positiveaicode.ai.model.HtmlCodeResult;
 import com.xr.positiveaicode.ai.model.MultiFileCodeResult;
 import com.xr.positiveaicode.core.parser.CodeParserExecutor;
@@ -21,6 +22,9 @@ import java.io.File;
 @Service
 @Slf4j
 public class AiCodeGeneratorFacade {
+
+    @Resource
+    private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
 
     @Resource
     private AiCodeGeneratorService aiCodeGeneratorService;
@@ -108,6 +112,8 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
+        // 获取对应的服务实例
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode(userMessage);
@@ -134,6 +140,8 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
+        // 获取对应的服务实例
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 Flux<String> codeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);

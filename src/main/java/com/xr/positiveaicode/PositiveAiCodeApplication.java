@@ -1,10 +1,11 @@
 package com.xr.positiveaicode;
 
+import dev.langchain4j.community.store.embedding.redis.spring.RedisEmbeddingStoreAutoConfiguration;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = {RedisEmbeddingStoreAutoConfiguration.class})
 @MapperScan("com.xr.positiveaicode.mapper")
 public class PositiveAiCodeApplication {
 
