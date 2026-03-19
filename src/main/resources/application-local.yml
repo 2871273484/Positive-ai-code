@@ -10,7 +10,6 @@ langchain4j:
       max-tokens: 8192
       strict-json-schema: true
       response-format: json_object
-      max-retries: 2
     streaming-chat-model:
       base-url: https://api.deepseek.com
       api-key: sk-7acc3601be8248e69b9c3ffd1b0d98f5
