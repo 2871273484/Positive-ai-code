@@ -1,8 +1,11 @@
 package com.xr.positiveaicode.core.handler;
 
+import com.xr.positiveaicode.constant.AppConstant;
+import com.xr.positiveaicode.core.builder.VueProjectBuilder;
 import com.xr.positiveaicode.model.entity.User;
 import com.xr.positiveaicode.model.enums.ChatHistoryMessageTypeEnum;
 import com.xr.positiveaicode.service.ChatHistoryService;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
@@ -12,6 +15,9 @@ import reactor.core.publisher.Flux;
  */
 @Slf4j
 public class SimpleTextStreamHandler {
+
+    @Resource
+    private VueProjectBuilder vueProjectBuilder;
 
     /**
      * 处理传统流（HTML, MULTI_FILE）
@@ -37,6 +43,9 @@ public class SimpleTextStreamHandler {
                     // 流式响应完成后，添加AI消息到对话历史
                     String aiResponse = aiResponseBuilder.toString();
                     chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    // 异步构造 Vue 项目
+                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+                    vueProjectBuilder.buildProjectAsync(projectPath);
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
