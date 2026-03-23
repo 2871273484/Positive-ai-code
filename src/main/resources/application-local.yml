@@ -17,3 +17,10 @@ langchain4j:
       max-tokens: 8192
       log-requests: true
       log-responses: true
+cos:
+  client:
+    host: https://positive-ai-code-1328260883.cos.ap-nanjing.myqcloud.com
+    secretId: AKIDsjPs8B0bzHLBoDOL4at1w6KQLIC0e7OS
+    secretKey: tZ5QXQ9h3CAvSt8AyYu2zjIwNaZMwLZZ
+    region: ap-nanjing
+    bucket: positive-ai-code-1328260883
