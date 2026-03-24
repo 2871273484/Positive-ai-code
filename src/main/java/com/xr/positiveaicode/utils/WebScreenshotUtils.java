@@ -24,14 +24,6 @@ import java.time.Duration;
 @Slf4j
 public class WebScreenshotUtils {
 
-    private static final WebDriver webDriver;
-
-    static {
-        final int DEFAULT_WIDTH = 1600;
-        final int DEFAULT_HEIGHT = 900;
-        webDriver = initChromeDriver(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-    }
-
     public static void cleanupTempFiles() {
         FileUtil.clean(System.getProperty("user.dir") + File.separator + "tmp"+File.separator+"screenshots");
     }
@@ -39,7 +31,7 @@ public class WebScreenshotUtils {
     // 销毁 WebDriver
     @PreDestroy
     public void destroy() {
-        webDriver.quit();
+        cleanupTempFiles();
     }
 
     /**
@@ -133,7 +125,7 @@ public class WebScreenshotUtils {
      * @param webUrl 网页URL
      * @return 压缩后的截图文件路径，失败返回null
      */
-    public static String saveWebPageScreenshot(String webUrl) {
+    public static String saveWebPageScreenshot(String webUrl, WebDriver webDriver) {
         if (StrUtil.isBlank(webUrl)) {
             log.error("网页URL不能为空");
             return null;
@@ -169,5 +161,16 @@ public class WebScreenshotUtils {
             return null;
         }
     }
-
+    public static String saveWebPageScreen(String webUrl) {
+        final int DEFAULT_WIDTH = 1600;
+        final int DEFAULT_HEIGHT = 900;
+        WebDriver  webDriver = initChromeDriver(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        // 每次新建
+        try {
+            webDriver.get(webUrl);
+            return saveWebPageScreenshot(webUrl,webDriver);
+        } finally {
+            webDriver.quit(); // 用完就关闭
+        }
+    }
 }

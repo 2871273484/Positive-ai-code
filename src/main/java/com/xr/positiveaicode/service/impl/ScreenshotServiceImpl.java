@@ -28,7 +28,7 @@ public class ScreenshotServiceImpl implements ScreenshotService {
         ThrowUtils.throwIf(StrUtil.isBlank(webUrl), ErrorCode.PARAMS_ERROR, "网页URL不能为空");
         log.info("开始生成网页截图，URL: {}", webUrl);
         // 1. 生成本地截图
-        String localScreenshotPath = WebScreenshotUtils.saveWebPageScreenshot(webUrl);
+        String localScreenshotPath = WebScreenshotUtils.saveWebPageScreen(webUrl);
         ThrowUtils.throwIf(StrUtil.isBlank(localScreenshotPath), ErrorCode.OPERATION_ERROR, "本地截图生成失败");
         try {
             // 2. 上传到对象存储
