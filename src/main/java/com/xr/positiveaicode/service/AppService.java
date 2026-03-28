@@ -2,6 +2,7 @@ package com.xr.positiveaicode.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.xr.positiveaicode.model.dto.app.AppAddRequest;
 import com.xr.positiveaicode.model.dto.app.AppQueryRequest;
 import com.xr.positiveaicode.model.entity.App;
 import com.xr.positiveaicode.model.entity.User;
@@ -40,4 +41,6 @@ public interface AppService extends IService<App> {
     String deployApp(Long appId, User loginUser);
 
     void generateAppScreenshotAsync(Long appId, String appUrl);
+
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
 }
