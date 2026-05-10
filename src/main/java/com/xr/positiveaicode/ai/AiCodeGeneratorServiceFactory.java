@@ -2,7 +2,7 @@ package com.xr.positiveaicode.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.xr.positiveaicode.ai.tools.FileWriteTool;
+import com.xr.positiveaicode.ai.tools.*;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
@@ -38,6 +38,9 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private StreamingChatModel reasoningStreamingChatModel;
+
+    @Resource
+    private ToolManager toolManager;
 
     @Bean
     public AiCodeGeneratorService aiCodeGeneratorService() {
@@ -104,7 +107,7 @@ public class AiCodeGeneratorServiceFactory {
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(new FileWriteTool())
+                    .tools(toolManager.getAllTools())
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
