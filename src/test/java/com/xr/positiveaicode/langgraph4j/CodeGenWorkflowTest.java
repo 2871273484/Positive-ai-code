@@ -37,7 +37,7 @@ class CodeGenWorkflowTest {
 
     @Test
     void testSimpleHtmlWorkflow() {
-        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个简单的音乐网站");
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个简单的黑客网站");
         Assertions.assertNotNull(result);
         System.out.println("生成类型: " + result.getGenerationType());
         System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
