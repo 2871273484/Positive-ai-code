@@ -1,7 +1,6 @@
 package com.xr.positiveaicode.langgraph4j.state;
 
 import com.xr.positiveaicode.langgraph4j.model.ImageResource;
-import com.xr.positiveaicode.langgraph4j.model.QualityResult;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -58,10 +57,10 @@ public class WorkflowContext implements Serializable {
      */
     private CodeGenTypeEnum generationType;
 
-    /**
-     * 质量检查结果
-     */
-    private QualityResult qualityResult;
+//    /**
+//     * 质量检查结果
+//     */
+//    private QualityResult qualityResult;
 
     /**
      * 生成的代码目录

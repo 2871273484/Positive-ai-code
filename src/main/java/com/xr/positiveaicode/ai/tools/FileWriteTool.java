@@ -73,13 +73,11 @@ public class FileWriteTool extends BaseTool{
         String relativeFilePath = arguments.getStr("relativeFilePath");
         String suffix = FileUtil.getSuffix(relativeFilePath);
         String content = arguments.getStr("content");
-        // 转义模板变量语法，避免 langchain4j 误解析
-        String escapedContent = TemplateEscapeUtil.escapeTemplateVariables(content);
         return String.format("""
                         [工具调用] 写入文件 %s
                         ```%s
                         %s
                         ```
-                        """, getDisplayName(),relativeFilePath,suffix, escapedContent);
+                        """, getDisplayName(),relativeFilePath,suffix);
     }
 }

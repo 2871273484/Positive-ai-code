@@ -75,9 +75,6 @@ public class FileModifyTool  extends BaseTool{
         String relativeFilePath = arguments.getStr("relativeFilePath");
         String oldContent = arguments.getStr("oldContent");
         String newContent = arguments.getStr("newContent");
-        // 转义模板变量语法，避免 langchain4j 误解析
-        String escapedOldContent = TemplateEscapeUtil.escapeTemplateVariables(oldContent);
-        String escapedNewContent = TemplateEscapeUtil.escapeTemplateVariables(newContent);
         // 显示对比内容
         return String.format("""
                 [工具调用] %s %s
@@ -91,6 +88,6 @@ public class FileModifyTool  extends BaseTool{
                 ```
                 %s
                 ```
-                """, getDisplayName(), relativeFilePath, escapedOldContent, escapedNewContent);
+                """, getDisplayName(), relativeFilePath);
     }
 }
