@@ -19,7 +19,7 @@ class CodeGenWorkflowTest {
 
     @Test
     void testCorporateWorkflow() {
-        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建企业官网，展示公司形象和业务介绍");
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建企业官网，展示公司形象和业务介绍，vue项目");
         Assertions.assertNotNull(result);
         System.out.println("生成类型: " + result.getGenerationType());
         System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());
@@ -28,7 +28,7 @@ class CodeGenWorkflowTest {
 
     @Test
     void testVueProjectWorkflow() {
-        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个Vue前端项目，包含用户管理和数据展示功能");
+        WorkflowContext result = new CodeGenWorkflow().executeWorkflow("创建一个简单的王者荣耀网站，vue项目");
         Assertions.assertNotNull(result);
         System.out.println("生成类型: " + result.getGenerationType());
         System.out.println("生成的代码目录: " + result.getGeneratedCodeDir());

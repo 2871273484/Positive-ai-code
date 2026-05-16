@@ -163,11 +163,13 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
             // 先清理历史缓存，防止重复加载
             chatMemory.clear();
             for (ChatHistory history : historyList) {
+                // 转义消息内容中的模板变量语法，避免 langchain4j 误解析
+                String escapedMessage = escapeTemplateVariables(history.getMessage());
                 if (ChatHistoryMessageTypeEnum.USER.getValue().equals(history.getMessageType())) {
-                    chatMemory.add(UserMessage.from(history.getMessage()));
+                    chatMemory.add(UserMessage.from(escapedMessage));
                     loadedCount++;
                 } else if (ChatHistoryMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
-                    chatMemory.add(AiMessage.from(history.getMessage()));
+                    chatMemory.add(AiMessage.from(escapedMessage));
                     loadedCount++;
                 }
             }
@@ -178,6 +180,24 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
             // 加载失败不影响系统运行，只是没有历史上下文
             return 0;
         }
+    }
+
+    /**
+     * 转义模板变量语法
+     * 将 {{ 替换为 { { ，将 }} 替换为 } }
+     * 避免 langchain4j 将其误解析为模板变量
+     *
+     * @param content 原始内容
+     * @return 转义后的内容
+     */
+    private String escapeTemplateVariables(String content) {
+        if (content == null) {
+            return null;
+        }
+        // 使用零宽空格（\u200B）来分隔花括号，显示时不可见但不会被识别为模板变量
+        return content
+                .replace("{{", "{\u200B{")
+                .replace("}}", "}\u200B}");
     }
 
 
