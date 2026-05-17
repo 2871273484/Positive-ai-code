@@ -25,6 +25,7 @@ import com.xr.positiveaicode.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
@@ -47,6 +48,7 @@ import java.util.Map;
 public class AppController {
 
     @Resource
+    @Lazy
     private AppService appService;
 
     @Resource
