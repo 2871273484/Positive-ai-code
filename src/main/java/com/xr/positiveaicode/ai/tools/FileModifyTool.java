@@ -88,6 +88,6 @@ public class FileModifyTool  extends BaseTool{
                 ```
                 %s
                 ```
-                """, getDisplayName(), relativeFilePath);
+                """, getDisplayName(), relativeFilePath, oldContent, newContent);
     }
 }

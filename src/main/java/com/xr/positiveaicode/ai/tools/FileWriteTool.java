@@ -74,10 +74,10 @@ public class FileWriteTool extends BaseTool{
         String suffix = FileUtil.getSuffix(relativeFilePath);
         String content = arguments.getStr("content");
         return String.format("""
-                        [工具调用] 写入文件 %s
+                        [工具调用] %s %s
                         ```%s
                         %s
                         ```
-                        """, getDisplayName(),relativeFilePath,suffix);
+                        """, getDisplayName(), relativeFilePath, suffix, content);
     }
 }
