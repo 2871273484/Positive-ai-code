@@ -12,9 +12,11 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
 // 静态资源地址
 export const STATIC_BASE_URL = `${API_BASE_URL}/static`
 
-// 获取部署应用的完整URL
+// 获取部署应用的完整URL（与后端 code.deploy-host 对齐，如 /apps/{key}/）
 export const getDeployUrl = (deployKey: string) => {
-  return `${DEPLOY_DOMAIN}/${deployKey}`
+  const base = String(DEPLOY_DOMAIN || '').replace(/\/+$/, '')
+  const key = String(deployKey || '').replace(/^\/+/, '')
+  return `${base}/${key}/`
 }
 
 // 获取静态资源预览URL

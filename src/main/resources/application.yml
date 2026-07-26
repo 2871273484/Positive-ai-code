@@ -39,3 +39,10 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+
+# 应用部署：由后端 /api/deployed/{key}/ 提供静态文件（经 Nginx 反代 /api 即可）
+# deploy-host 须指向该接口前缀；deploy-root 为落盘目录（默认 user.dir/tmp/code_deploy）
+code:
+  deploy-host: http://localhost:8080/api/deployed
+  # 留空则使用 {user.dir}/tmp/code_deploy
+  deploy-root:

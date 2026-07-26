@@ -30,6 +30,7 @@ import java.util.regex.Pattern;
 /**
  * 网页截图工具。
  * ChromeDriver 优先使用本地文件，必要时从国内镜像下载，避免访问 Google 被重置。
+ * 同时支持 Windows 本地开发与 Linux 生产环境。
  */
 @Slf4j
 public class WebScreenshotUtils {
@@ -39,8 +40,52 @@ public class WebScreenshotUtils {
 
     /** 国内 Chrome for Testing 镜像（npmmirror） */
     private static final String NPMMIRROR_CFT_BASE = "https://cdn.npmmirror.com/binaries/chrome-for-testing/";
+    /** Google 官方 CFT 下载（精确版本 404 时的备用源） */
+    private static final String GOOGLE_CFT_BASE = "https://storage.googleapis.com/chrome-for-testing-public/";
+    /** 按主版本（milestone）查询可用 chromedriver 版本 */
+    private static final String CFT_MILESTONE_JSON =
+            "https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone-with-downloads.json";
 
     private static final Pattern VERSION_PATTERN = Pattern.compile("(\\d+\\.\\d+\\.\\d+\\.\\d+)");
+
+    private enum OsKind {
+        WINDOWS, LINUX, MAC, OTHER
+    }
+
+    private static OsKind detectOs() {
+        String os = StrUtil.blankToDefault(System.getProperty("os.name"), "").toLowerCase();
+        if (os.contains("win")) {
+            return OsKind.WINDOWS;
+        }
+        if (os.contains("mac") || os.contains("darwin")) {
+            return OsKind.MAC;
+        }
+        if (os.contains("nux") || os.contains("nix") || os.contains("aix")) {
+            return OsKind.LINUX;
+        }
+        return OsKind.OTHER;
+    }
+
+    /** chrome-for-testing 平台目录名：win64 / linux64 / mac-x64 */
+    private static String cftPlatform() {
+        return switch (detectOs()) {
+            case WINDOWS -> "win64";
+            case LINUX -> "linux64";
+            case MAC -> {
+                String arch = StrUtil.blankToDefault(System.getProperty("os.arch"), "").toLowerCase();
+                yield (arch.contains("aarch64") || arch.contains("arm")) ? "mac-arm64" : "mac-x64";
+            }
+            default -> "linux64";
+        };
+    }
+
+    private static String driverFileName() {
+        return detectOs() == OsKind.WINDOWS ? "chromedriver.exe" : "chromedriver";
+    }
+
+    private static String driverZipFolder() {
+        return "chromedriver-" + cftPlatform();
+    }
 
     public static void cleanupTempFiles() {
         FileUtil.clean(System.getProperty("user.dir") + File.separator + "tmp" + File.separator + "screenshots");
@@ -101,13 +146,29 @@ public class WebScreenshotUtils {
             }
             if (driverFile == null || !driverFile.exists()) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR,
-                        "未找到 ChromeDriver。请下载后放到 drivers/chromedriver.exe，或设置 CHROMEDRIVER_PATH");
+                        "未找到 ChromeDriver。Linux 请安装 google-chrome 或设置 CHROMEDRIVER_PATH；"
+                                + "也可放到 drivers/chromedriver（无 .exe）");
             }
+            ensureExecutable(driverFile);
             System.setProperty("webdriver.chrome.driver", driverFile.getAbsolutePath());
             // 避免 Selenium Manager 再去访问 Google 下载驱动
             System.setProperty("SE_OFFLINE", "true");
             DRIVER_READY.set(true);
             log.info("ChromeDriver 已就绪: {}", driverFile.getAbsolutePath());
+        }
+    }
+
+    private static void ensureExecutable(File driverFile) {
+        if (detectOs() == OsKind.WINDOWS) {
+            return;
+        }
+        try {
+            if (!driverFile.canExecute()) {
+                boolean ok = driverFile.setExecutable(true, false);
+                log.info("为 ChromeDriver 添加可执行权限: {}, ok={}", driverFile.getAbsolutePath(), ok);
+            }
+        } catch (Exception e) {
+            log.warn("设置 ChromeDriver 可执行权限失败: {}", e.getMessage());
         }
     }
 
@@ -124,14 +185,15 @@ public class WebScreenshotUtils {
         }
         String projectRoot = System.getProperty("user.dir");
         String userHome = System.getProperty("user.home");
+        String platform = cftPlatform();
+        String exeName = driverFileName();
         String chromeVersion = detectChromeVersion();
         if (StrUtil.isNotBlank(chromeVersion)) {
             File[] versioned = {
                     new File(projectRoot,
-                            "tmp/chromedriver/" + chromeVersion + "/chromedriver-win64/chromedriver.exe"),
-                    // Selenium Manager 本机缓存
+                            "tmp/chromedriver/" + chromeVersion + "/" + driverZipFolder() + "/" + exeName),
                     new File(userHome,
-                            ".cache/selenium/chromedriver/win64/" + chromeVersion + "/chromedriver.exe"),
+                            ".cache/selenium/chromedriver/" + platform + "/" + chromeVersion + "/" + exeName),
             };
             for (File cached : versioned) {
                 if (cached.exists()) {
@@ -139,8 +201,7 @@ public class WebScreenshotUtils {
                     return cached;
                 }
             }
-            // 同主版本号的 Selenium 缓存（如 144.0.7559.133 可匹配 144.x）
-            File seleniumRoot = new File(userHome, ".cache/selenium/chromedriver/win64");
+            File seleniumRoot = new File(userHome, ".cache/selenium/chromedriver/" + platform);
             if (seleniumRoot.isDirectory()) {
                 String major = chromeVersion.split("\\.")[0];
                 File[] dirs = seleniumRoot.listFiles(File::isDirectory);
@@ -148,7 +209,7 @@ public class WebScreenshotUtils {
                     File matched = Arrays.stream(dirs)
                             .filter(d -> d.getName().startsWith(major + "."))
                             .max(Comparator.comparing(File::getName))
-                            .map(d -> new File(d, "chromedriver.exe"))
+                            .map(d -> new File(d, exeName))
                             .filter(File::exists)
                             .orElse(null);
                     if (matched != null) {
@@ -159,10 +220,13 @@ public class WebScreenshotUtils {
             }
         }
         File[] candidates = {
-                new File(projectRoot, "drivers/chromedriver.exe"),
+                new File(projectRoot, "drivers/" + exeName),
                 new File(projectRoot, "drivers/chromedriver"),
-                new File(projectRoot, "tmp/chromedriver/chromedriver.exe"),
-                new File(projectRoot, "tmp/chromedriver/chromedriver-win64/chromedriver.exe"),
+                new File(projectRoot, "drivers/chromedriver.exe"),
+                new File(projectRoot, "tmp/chromedriver/" + exeName),
+                new File(projectRoot, "tmp/chromedriver/" + driverZipFolder() + "/" + exeName),
+                new File("/usr/local/bin/chromedriver"),
+                new File("/usr/bin/chromedriver"),
         };
         for (File candidate : candidates) {
             if (candidate.exists() && candidate.isFile()) {
@@ -174,7 +238,8 @@ public class WebScreenshotUtils {
     }
 
     /**
-     * 从 npmmirror 下载与本机 Chrome 匹配的 ChromeDriver
+     * 下载与本机 Chrome 匹配的 ChromeDriver。
+     * 精确版本常 404（浏览器小版本比 CFT 新），会按 milestone 解析可用版本再下。
      */
     private static File downloadDriverFromNpmMirror() {
         String chromeVersion = detectChromeVersion();
@@ -182,84 +247,133 @@ public class WebScreenshotUtils {
             log.error("无法检测本机 Chrome 版本，跳过自动下载 ChromeDriver");
             return null;
         }
-        log.info("检测到 Chrome 版本: {}，尝试从国内镜像下载 ChromeDriver", chromeVersion);
+        String platform = cftPlatform();
+        log.info("检测到 Chrome 版本: {}，平台: {}，准备下载 ChromeDriver", chromeVersion, platform);
 
-        File targetDir = new File(System.getProperty("user.dir"), "tmp/chromedriver/" + chromeVersion);
-        File targetExe = new File(targetDir, "chromedriver-win64/chromedriver.exe");
+        // 1) 精确版本
+        File exact = downloadDriverForVersion(chromeVersion);
+        if (exact != null) {
+            return exact;
+        }
+        // 2) milestone 最新可用版本（如 150.0.7871.186 -> 150.0.7871.124）
+        String milestoneVersion = resolveMilestoneDriverVersion(chromeVersion);
+        if (StrUtil.isNotBlank(milestoneVersion) && !milestoneVersion.equals(chromeVersion)) {
+            log.info("精确版本不可用，改用同主版本可用驱动: {}", milestoneVersion);
+            File byMilestone = downloadDriverForVersion(milestoneVersion);
+            if (byMilestone != null) {
+                return byMilestone;
+            }
+        }
+        // 3) Windows 安装目录下其它版本号
+        String folderVersion = resolveInstalledChromeFolderVersion();
+        if (StrUtil.isNotBlank(folderVersion)
+                && !folderVersion.equals(chromeVersion)
+                && !folderVersion.equals(milestoneVersion)) {
+            log.info("尝试安装目录版本下载 ChromeDriver: {}", folderVersion);
+            return downloadDriverForVersion(folderVersion);
+        }
+        return null;
+    }
+
+    /**
+     * 下载指定版本的 chromedriver：先 npmmirror，失败再试 Google storage。
+     */
+    private static File downloadDriverForVersion(String driverVersion) {
+        if (StrUtil.isBlank(driverVersion)) {
+            return null;
+        }
+        String platform = cftPlatform();
+        String zipFolder = driverZipFolder();
+        String exeName = driverFileName();
+        File targetDir = new File(System.getProperty("user.dir"), "tmp/chromedriver/" + driverVersion);
+        File targetExe = new File(targetDir, zipFolder + "/" + exeName);
         if (targetExe.exists()) {
+            ensureExecutable(targetExe);
             return targetExe;
         }
         FileUtil.mkdir(targetDir);
 
-        String zipUrl = NPMMIRROR_CFT_BASE + chromeVersion + "/win64/chromedriver-win64.zip";
-        File zipFile = new File(targetDir, "chromedriver-win64.zip");
-        try {
-            log.info("下载 ChromeDriver: {}", zipUrl);
-            long size = HttpUtil.downloadFile(zipUrl, zipFile);
-            if (size <= 0 || !zipFile.exists()) {
-                // 精确版本不存在时，尝试用主版本号在镜像目录探测不可行，直接失败提示
-                log.error("ChromeDriver 下载失败或文件为空: {}", zipUrl);
-                return null;
+        String relative = driverVersion + "/" + platform + "/" + zipFolder + ".zip";
+        String[] urls = {
+                NPMMIRROR_CFT_BASE + relative,
+                GOOGLE_CFT_BASE + relative,
+        };
+        for (String zipUrl : urls) {
+            File zipFile = new File(targetDir, zipFolder + "-" + Integer.toHexString(zipUrl.hashCode()) + ".zip");
+            try {
+                log.info("下载 ChromeDriver: {}", zipUrl);
+                long size = HttpUtil.downloadFile(zipUrl, zipFile);
+                if (size <= 0 || !zipFile.exists()) {
+                    log.warn("ChromeDriver 下载失败或文件为空: {}", zipUrl);
+                    continue;
+                }
+                ZipUtil.unzip(zipFile, targetDir);
+                if (targetExe.exists()) {
+                    ensureExecutable(targetExe);
+                    return targetExe;
+                }
+                File flat = FileUtil.loopFiles(targetDir, file ->
+                                exeName.equalsIgnoreCase(file.getName())
+                                        || "chromedriver".equalsIgnoreCase(file.getName()))
+                        .stream().findFirst().orElse(null);
+                if (flat != null) {
+                    ensureExecutable(flat);
+                    return flat;
+                }
+                log.warn("ChromeDriver 解压后未找到可执行文件, dir={}", targetDir.getAbsolutePath());
+            } catch (Exception e) {
+                log.warn("下载 ChromeDriver 失败, version={}, url={}: {}", driverVersion, zipUrl, e.getMessage());
+            } finally {
+                FileUtil.del(zipFile);
             }
-            ZipUtil.unzip(zipFile, targetDir);
-            if (targetExe.exists()) {
-                return targetExe;
-            }
-            // 兼容解压后直接落在 targetDir 下的情况
-            File flat = FileUtil.loopFiles(targetDir, file ->
-                    "chromedriver.exe".equalsIgnoreCase(file.getName())).stream().findFirst().orElse(null);
-            if (flat != null) {
-                return flat;
-            }
-            log.error("ChromeDriver 解压后未找到可执行文件, dir={}", targetDir.getAbsolutePath());
-            return null;
-        } catch (Exception e) {
-            log.error("从国内镜像下载 ChromeDriver 失败, version={}, url={}: {}", chromeVersion, zipUrl, e.getMessage(), e);
-            return tryDownloadByMajorVersion(chromeVersion, targetDir);
-        } finally {
-            FileUtil.del(zipFile);
         }
+        return null;
     }
 
     /**
-     * 精确版本失败时，尝试用 major.0.0.0 附近常见构建（读 Chrome 安装目录下最新版本文件夹）
+     * 查询 Chrome for Testing：该主版本（milestone）下最新可用的 chromedriver 版本号。
      */
-    private static File tryDownloadByMajorVersion(String chromeVersion, File targetDir) {
-        String altVersion = resolveInstalledChromeFolderVersion();
-        if (StrUtil.isBlank(altVersion) || altVersion.equals(chromeVersion)) {
-            return null;
-        }
-        log.info("尝试备用 Chrome 版本目录下载 ChromeDriver: {}", altVersion);
-        String zipUrl = NPMMIRROR_CFT_BASE + altVersion + "/win64/chromedriver-win64.zip";
-        File zipFile = new File(targetDir, "chromedriver-alt.zip");
+    private static String resolveMilestoneDriverVersion(String chromeVersion) {
         try {
-            HttpUtil.downloadFile(zipUrl, zipFile);
-            ZipUtil.unzip(zipFile, targetDir);
-            return FileUtil.loopFiles(targetDir, file ->
-                    "chromedriver.exe".equalsIgnoreCase(file.getName())).stream().findFirst().orElse(null);
+            String major = chromeVersion.split("\\.")[0];
+            String json = HttpUtil.get(CFT_MILESTONE_JSON, 8000);
+            if (StrUtil.isBlank(json)) {
+                return null;
+            }
+            cn.hutool.json.JSONObject root = cn.hutool.json.JSONUtil.parseObj(json);
+            cn.hutool.json.JSONObject milestones = root.getJSONObject("milestones");
+            if (milestones == null) {
+                return null;
+            }
+            cn.hutool.json.JSONObject milestone = milestones.getJSONObject(major);
+            if (milestone == null) {
+                return null;
+            }
+            String version = milestone.getStr("version");
+            log.info("CFT milestone {} 可用版本: {}", major, version);
+            return version;
         } catch (Exception e) {
-            log.error("备用版本下载失败: {}", e.getMessage());
+            log.warn("查询 CFT milestone 版本失败: {}", e.getMessage());
             return null;
-        } finally {
-            FileUtil.del(zipFile);
         }
     }
 
     private static String detectChromeVersion() {
-        // 注册表最稳（Win 用户安装路径不一定在 Program Files）
-        try {
-            String reg = RuntimeUtil.execForStr("reg", "query",
-                    "HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon", "/v", "version");
-            Matcher matcher = VERSION_PATTERN.matcher(StrUtil.blankToDefault(reg, ""));
-            if (matcher.find()) {
-                return matcher.group(1);
+        if (detectOs() == OsKind.WINDOWS) {
+            try {
+                String reg = RuntimeUtil.execForStr("reg", "query",
+                        "HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon", "/v", "version");
+                Matcher matcher = VERSION_PATTERN.matcher(StrUtil.blankToDefault(reg, ""));
+                if (matcher.find()) {
+                    return matcher.group(1);
+                }
+            } catch (Exception e) {
+                log.warn("通过注册表检测 Chrome 版本失败: {}", e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("通过注册表检测 Chrome 版本失败: {}", e.getMessage());
-        }
-        String fromFolder = resolveInstalledChromeFolderVersion();
-        if (StrUtil.isNotBlank(fromFolder)) {
-            return fromFolder;
+            String fromFolder = resolveInstalledChromeFolderVersion();
+            if (StrUtil.isNotBlank(fromFolder)) {
+                return fromFolder;
+            }
         }
         try {
             String chromeBinary = resolveChromeBinary();
@@ -273,10 +387,25 @@ public class WebScreenshotUtils {
         } catch (Exception e) {
             log.warn("通过 chrome --version 检测版本失败: {}", e.getMessage());
         }
+        // Linux 常见命令名再试一次
+        for (String cmd : new String[]{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser"}) {
+            try {
+                String output = RuntimeUtil.execForStr(cmd, "--version");
+                Matcher matcher = VERSION_PATTERN.matcher(StrUtil.blankToDefault(output, ""));
+                if (matcher.find()) {
+                    return matcher.group(1);
+                }
+            } catch (Exception ignored) {
+                // continue
+            }
+        }
         return null;
     }
 
     private static String resolveInstalledChromeFolderVersion() {
+        if (detectOs() != OsKind.WINDOWS) {
+            return null;
+        }
         for (String base : new String[]{
                 "C:\\Program Files\\Google\\Chrome\\Application",
                 "C:\\Program Files (x86)\\Google\\Chrome\\Application"
@@ -298,16 +427,37 @@ public class WebScreenshotUtils {
     }
 
     private static String resolveChromeBinary() {
-        String localAppData = System.getenv("LOCALAPPDATA");
+        String envChrome = System.getenv("CHROME_BINARY");
+        if (StrUtil.isNotBlank(envChrome) && FileUtil.exist(envChrome)) {
+            return envChrome;
+        }
+        if (detectOs() == OsKind.WINDOWS) {
+            String localAppData = System.getenv("LOCALAPPDATA");
+            String[] paths = {
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                    StrUtil.isNotBlank(localAppData)
+                            ? localAppData + "\\Google\\Chrome\\Application\\chrome.exe"
+                            : null
+            };
+            for (String path : paths) {
+                if (StrUtil.isNotBlank(path) && FileUtil.exist(path)) {
+                    return path;
+                }
+            }
+            return null;
+        }
+        // Linux / Mac
         String[] paths = {
-                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-                "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-                StrUtil.isNotBlank(localAppData)
-                        ? localAppData + "\\Google\\Chrome\\Application\\chrome.exe"
-                        : null
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+                "/snap/bin/chromium",
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         };
         for (String path : paths) {
-            if (StrUtil.isNotBlank(path) && FileUtil.exist(path)) {
+            if (FileUtil.exist(path)) {
                 return path;
             }
         }

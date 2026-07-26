@@ -62,6 +62,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
 
     @Value("${code.deploy-host:http://localhost}")
     private String deployHost;
+
+    /**
+     * 部署文件落盘目录（须与 Nginx 静态目录、deploy-host 路径一致）。
+     * 未配置时默认 user.dir/tmp/code_deploy。
+     */
+    @Value("${code.deploy-root:}")
+    private String deployRoot;
+
     @Resource
     private UserService userService;
 
@@ -290,10 +298,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             sourceDir = distDir;
             log.info("Vue 项目构建成功，将部署 dist 目录: {}", distDir.getAbsolutePath());
         }
-        // 8. 复制文件到部署目录
-        String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
+        // 8. 复制到 deploy-root，由 /api/deployed/{key}/ 提供访问（无需 Nginx 再挂静态目录）
+        String deployRootDir = resolveDeployRootDir();
+        String deployDirPath = deployRootDir + File.separator + deployKey;
         try {
+            FileUtil.mkdir(deployRootDir);
             FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
+            log.info("应用已部署到目录: {}, 访问地址: {}/{}/", deployDirPath, deployHost.replaceAll("/+$", ""), deployKey);
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败：" + e.getMessage());
         }
@@ -305,11 +316,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
         // 10. 构建应用访问 URL
-        String appDeployUrl = String.format("%s/%s/", deployHost, deployKey);
+        String appDeployUrl = String.format("%s/%s/", deployHost.replaceAll("/+$", ""), deployKey);
         // 11. 异步生成截图并更新应用封面（优先截本地主页）
         generateAppScreenshotAsync(appId, appDeployUrl);
         return appDeployUrl;
 
+    }
+
+    private String resolveDeployRootDir() {
+        if (StrUtil.isNotBlank(deployRoot)) {
+            return deployRoot.trim();
+        }
+        return AppConstant.CODE_DEPLOY_ROOT_DIR;
     }
 
     /**
