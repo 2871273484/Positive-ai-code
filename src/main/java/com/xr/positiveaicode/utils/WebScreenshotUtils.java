@@ -72,8 +72,9 @@ public class WebScreenshotUtils {
                 options.setBinary(chromeBinary);
             }
             WebDriver driver = new ChromeDriver(options);
-            driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(30));
-            driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
+            driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(15));
+            driver.manage().timeouts().scriptTimeout(Duration.ofSeconds(10));
+            driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(2));
             return driver;
         } catch (Exception e) {
             log.error("初始化 Chrome 浏览器失败", e);
@@ -338,12 +339,13 @@ public class WebScreenshotUtils {
 
     private static void waitForPageLoad(WebDriver driver) {
         try {
-            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(8));
             wait.until(webDriver ->
                     ((JavascriptExecutor) webDriver).executeScript("return document.readyState")
                             .equals("complete")
             );
-            Thread.sleep(2000);
+            // 短等即可，避免封面截图长时间占用 CPU 影响用户浏览
+            Thread.sleep(500);
             log.info("页面加载完成");
         } catch (Exception e) {
             log.error("等待页面加载时出现异常，继续执行截图", e);

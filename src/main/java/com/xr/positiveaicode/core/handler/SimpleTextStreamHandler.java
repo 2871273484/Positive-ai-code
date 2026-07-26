@@ -39,9 +39,18 @@ public class SimpleTextStreamHandler {
                 })
                 .doOnComplete(() -> {
                     String aiResponse = aiResponseBuilder.toString();
-                    if (!aiResponse.isBlank()) {
-                        chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    if (aiResponse.isBlank()) {
+                        return;
                     }
+                    // 异步写历史，避免大段 HTML 入库拖住 SSE done，前端一直转圈
+                    Thread.startVirtualThread(() -> {
+                        try {
+                            chatHistoryService.addChatMessage(appId, aiResponse,
+                                    ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                        } catch (Exception e) {
+                            log.error("异步保存 AI 对话历史失败, appId={}: {}", appId, e.getMessage(), e);
+                        }
+                    });
                 })
                 .doOnError(error -> {
                     String errorMessage = "AI回复失败: " + error.getMessage();

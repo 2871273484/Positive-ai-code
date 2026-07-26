@@ -128,17 +128,17 @@ public class CodeGenWorkflow {
             log.info("准备工作流完成，开始流式代码生成, appId={}, type={}, promptLength={}",
                     appId, type, prompt.length());
             AiCodeGeneratorFacade facade = SpringContextUtil.getBean(AiCodeGeneratorFacade.class);
-            Flux<String> codeFlux = facade.generateAndSaveCodeStream(prompt, type, appId)
-                    .publish()
-                    .refCount(1);
-            // 出码间隙心跳（不写入代码正文，前端靠 PROGRESS 前缀识别）
-            Flux<String> codeHeartbeat = Flux.interval(java.time.Duration.ofSeconds(8))
-                    .map(i -> PROGRESS_PREFIX + "模型仍在生成，请稍候（已等待 "
-                            + ((i + 1) * 8) + " 秒）…")
-                    .takeUntilOther(codeFlux.ignoreElements());
+            // publish(Function) 保证代码流只订阅一次，避免心跳双订阅拖住结束
             return Flux.concat(
                     Flux.just(PROGRESS_PREFIX + "正在连接 AI 模型生成代码…"),
-                    Flux.merge(codeFlux, codeHeartbeat)
+                    facade.generateAndSaveCodeStream(prompt, type, appId)
+                            .publish(shared -> {
+                                Flux<String> codeHeartbeat = Flux.interval(java.time.Duration.ofSeconds(8))
+                                        .map(i -> PROGRESS_PREFIX + "模型仍在生成，请稍候（已等待 "
+                                                + ((i + 1) * 8) + " 秒）…")
+                                        .takeUntilOther(shared.ignoreElements().onErrorComplete());
+                                return Flux.merge(shared, codeHeartbeat);
+                            })
             );
         });
 

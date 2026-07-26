@@ -120,19 +120,22 @@ public class AiCodeGeneratorFacade {
                 log.error("保存失败: {}", e.getMessage());
             }
         };
-        // 35s 无新片段则判定卡住（每次收到 token 会重置计时）
+        // HTML/多文件：20s 无新片段则结束（模型常停在末尾不关流）；Vue 仍用 35s
+        Duration idleTimeout = (codeGenType == CodeGenTypeEnum.HTML || codeGenType == CodeGenTypeEnum.MULTI_FILE)
+                ? Duration.ofSeconds(20)
+                : Duration.ofSeconds(35);
         return codeStream
                 .doOnNext(codeBuilder::append)
-                .timeout(Duration.ofSeconds(35))
+                .timeout(idleTimeout)
                 .onErrorResume(error -> {
                     Throwable root = error;
                     while (root.getCause() != null && root != root.getCause()) {
                         root = root.getCause();
                     }
-                    boolean idleTimeout = error instanceof TimeoutException
+                    boolean idleTimeoutHit = error instanceof TimeoutException
                             || root instanceof TimeoutException
                             || (error.getMessage() != null && error.getMessage().contains("Did not observe any item"));
-                    if (!idleTimeout) {
+                    if (!idleTimeoutHit) {
                         return Flux.error(error);
                     }
                     log.warn("AI 流式空闲超时，结束并保存已生成内容, appId={}, chars={}", appId, codeBuilder.length());

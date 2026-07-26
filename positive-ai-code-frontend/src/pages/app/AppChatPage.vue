@@ -56,7 +56,16 @@
                   <a-avatar :src="aiAvatar" />
                 </div>
                 <div class="message-content">
-                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <!-- 原生 HTML/多文件：流式时用纯文本，避免 Markdown+HTML 注入卡死页面 -->
+                  <pre
+                    v-if="message.content && (message.plain || isNativeCodeGen)"
+                    class="stream-code"
+                    :data-streaming="isGenerating && index === messages.length - 1 ? '1' : undefined"
+                  >{{ message.content }}</pre>
+                  <MarkdownRenderer
+                    v-else-if="message.content"
+                    :content="message.content"
+                  />
                   <div v-if="message.loading" class="loading-indicator">
                     <a-spin size="small" />
                     <span>AI 正在思考...</span>
@@ -210,7 +219,7 @@
               >
                 <a-spin size="large" />
                 <p>{{ generatingStatus || '正在生成网站…' }}</p>
-                <span class="preview-loading-tip">若超过约半分钟无新内容会自动停止，可重试</span>
+                <span class="preview-loading-tip">若约 40 秒无新代码会自动结束并展示已生成内容</span>
               </div>
             </template>
           </div>
@@ -279,6 +288,8 @@ interface Message {
   content: string
   loading?: boolean
   createTime?: string
+  /** 原生 HTML/多文件消息：用 pre 展示，避免重渲染卡顿 */
+  plain?: boolean
 }
 
 
@@ -325,6 +336,12 @@ const isAdmin = computed(() => {
   return loginUserStore.loginUser.userRole === 'admin'
 })
 
+/** 原生 HTML / 多文件：流式内容大，不能走 Markdown 实时渲染 */
+const isNativeCodeGen = computed(() => {
+  const t = appInfo.value?.codeGenType
+  return t === CodeGenTypeEnum.HTML || t === CodeGenTypeEnum.MULTI_FILE
+})
+
 // 应用详情相关
 const appDetailVisible = ref(false)
 
@@ -356,6 +373,7 @@ const loadChatHistory = async (isLoadMore = false) => {
             type: (chat.messageType === 'user' ? 'user' : 'ai') as 'user' | 'ai',
             content: chat.message || '',
             createTime: chat.createTime,
+            plain: chat.messageType !== 'user' && isNativeCodeGen.value,
           }))
           .reverse() // 反转数组，让老消息在前
         if (isLoadMore) {
@@ -444,6 +462,7 @@ const sendInitialMessage = async (prompt: string) => {
     type: 'ai',
     content: '',
     loading: true,
+    plain: isNativeCodeGen.value,
   })
 
   await nextTick()
@@ -494,6 +513,7 @@ const sendMessage = async () => {
     type: 'ai',
     content: '',
     loading: true,
+    plain: isNativeCodeGen.value,
   })
 
   await nextTick()
@@ -509,6 +529,7 @@ const sendMessage = async () => {
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
   let eventSource: EventSource | null = null
   let streamCompleted = false
+  const usePlainStream = isNativeCodeGen.value
 
   try {
     // 获取 axios 配置的 baseURL
@@ -529,28 +550,93 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
     let fullContent = ''
     let lastProgressAt = Date.now()
+    let lastCodeAt = Date.now()
+    let flushTimer: number | null = null
 
-    // 超过 50 秒无任何进度/代码，主动结束，避免一直转圈
+    const flushStreamContent = () => {
+      flushTimer = null
+      messages.value[aiMessageIndex].content = fullContent
+      messages.value[aiMessageIndex].loading = false
+      if (usePlainStream) {
+        messages.value[aiMessageIndex].plain = true
+      }
+      // 必须滚代码块内部，否则只能看到开头，跟不上最新生成
+      void scrollToLatestCode(true)
+    }
+
+    const scheduleFlush = () => {
+      // 原生大文件：短节流，兼顾实时跟进与主线程流畅
+      if (usePlainStream) {
+        if (flushTimer == null) {
+          flushTimer = window.setTimeout(flushStreamContent, 100)
+        }
+        return
+      }
+      flushStreamContent()
+    }
+
+    const finishStream = (opts?: { keepContent?: boolean; tip?: string }) => {
+      if (streamCompleted) return
+      streamCompleted = true
+      if (flushTimer != null) {
+        window.clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      window.clearInterval(stallTimer)
+      if (opts?.tip) {
+        messages.value[aiMessageIndex].content =
+          (fullContent ? fullContent + '\n\n' : '') + opts.tip
+      } else if (opts?.keepContent !== false) {
+        messages.value[aiMessageIndex].content = fullContent
+      }
+      messages.value[aiMessageIndex].loading = false
+      if (usePlainStream) {
+        messages.value[aiMessageIndex].plain = true
+      }
+      isGenerating.value = false
+      generatingStatus.value = ''
+      eventSource?.close()
+      void scrollToLatestCode(true)
+    }
+
+    const showPreviewAfterStream = (delayMs = 400) => {
+      setTimeout(async () => {
+        await fetchAppInfo()
+        updatePreview()
+        // 封面截图走 Selenium，延后且不阻塞预览
+        setTimeout(() => {
+          void refreshAppCover()
+        }, 3000)
+      }, delayMs)
+    }
+
+    // 进度心跳不能无限续命：无新代码约 40s 则结束，避免右侧一直转圈
+    const CODE_IDLE_MS = 40000
+    const TOTAL_IDLE_MS = 90000
     const stallTimer = window.setInterval(() => {
       if (streamCompleted) {
         window.clearInterval(stallTimer)
         return
       }
-      if (Date.now() - lastProgressAt > 50000) {
-        window.clearInterval(stallTimer)
-        messages.value[aiMessageIndex].content =
-          (fullContent ? fullContent + '\n\n' : '') +
-          '❌ 生成中断：模型长时间无响应。可点重试，或缩小需求后再生成'
-        messages.value[aiMessageIndex].loading = false
-        message.error('生成中断，请重试')
-        streamCompleted = true
-        isGenerating.value = false
-        generatingStatus.value = ''
-        eventSource?.close()
+      const now = Date.now()
+      const codeIdle = now - lastCodeAt > CODE_IDLE_MS && fullContent.length > 0
+      const totalIdle = now - lastProgressAt > TOTAL_IDLE_MS
+      if (codeIdle || totalIdle) {
+        finishStream({
+          tip: codeIdle
+            ? '⏳ 代码流已较久无更新，已自动结束。可预览已生成内容，或继续说明要改哪里。'
+            : '❌ 生成中断：长时间无响应。可点重试，或缩小需求后再生成',
+        })
+        if (codeIdle) {
+          message.warning('已自动结束空闲生成，正在加载预览')
+          showPreviewAfterStream(600)
+        } else {
+          message.error('生成中断，请重试')
+        }
       }
-    }, 3000)
+    }, 2000)
 
-    // 处理接收到的消息（后端工具输出本身是 Markdown，前端用 MarkdownRenderer 渲染）
+    // 处理接收到的消息
     eventSource.onmessage = function (event) {
       if (streamCompleted) return
 
@@ -577,34 +663,21 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         }
 
         fullContent += content
+        lastCodeAt = Date.now()
         generatingStatus.value = '正在流式生成网站代码…'
-        messages.value[aiMessageIndex].content = fullContent
-        messages.value[aiMessageIndex].loading = false
-        scrollToBottom()
+        scheduleFlush()
       } catch (error) {
         console.error('解析消息失败:', error)
-        window.clearInterval(stallTimer)
-        handleError(error, aiMessageIndex)
+        finishStream({ tip: '❌ 解析流式消息失败，请重试' })
+        message.error('生成失败，请重试')
       }
     }
 
     // 处理done事件
     eventSource.addEventListener('done', function () {
       if (streamCompleted) return
-
-      window.clearInterval(stallTimer)
-      streamCompleted = true
-      isGenerating.value = false
-      generatingStatus.value = ''
-      messages.value[aiMessageIndex].content = fullContent
-      messages.value[aiMessageIndex].loading = false
-      eventSource?.close()
-
-      setTimeout(async () => {
-        await fetchAppInfo()
-        updatePreview()
-        void refreshAppCover()
-      }, 400)
+      finishStream()
+      showPreviewAfterStream(400)
     })
 
     // 处理business-error事件（后端限流等错误）
@@ -616,19 +689,12 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         console.error('SSE业务错误事件:', errorData)
 
         const errorMessage = errorData.message || '生成过程中出现错误'
-        messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
-        messages.value[aiMessageIndex].loading = false
+        finishStream({ tip: `❌ ${errorMessage}` })
         message.error(errorMessage)
-
-        window.clearInterval(stallTimer)
-        streamCompleted = true
-        isGenerating.value = false
-        generatingStatus.value = ''
-        eventSource?.close()
       } catch (parseError) {
         console.error('解析错误事件失败:', parseError, '原始数据:', event.data)
-        window.clearInterval(stallTimer)
-        handleError(new Error('服务器返回错误'), aiMessageIndex)
+        finishStream({ tip: '❌ 服务器返回错误' })
+        message.error('服务器返回错误')
       }
     })
 
@@ -636,23 +702,14 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     eventSource.onerror = function () {
       if (streamCompleted || !isGenerating.value) return
       if (eventSource?.readyState === EventSource.CONNECTING && fullContent) {
-        window.clearInterval(stallTimer)
-        streamCompleted = true
-        isGenerating.value = false
-        generatingStatus.value = ''
-        eventSource?.close()
-
-        setTimeout(async () => {
-          await fetchAppInfo()
-          updatePreview()
-          void refreshAppCover()
-        }, 1000)
+        finishStream()
+        showPreviewAfterStream(1000)
       } else if (eventSource?.readyState === EventSource.CLOSED) {
-        window.clearInterval(stallTimer)
-        handleError(new Error('生成连接已断开，请重试'), aiMessageIndex)
+        finishStream({ tip: '❌ 生成连接已断开，请重试' })
+        message.error('生成连接已断开，请重试')
       } else if (!fullContent && Date.now() - lastProgressAt > 20000) {
-        window.clearInterval(stallTimer)
-        handleError(new Error('SSE连接错误'), aiMessageIndex)
+        finishStream({ tip: '❌ SSE连接错误' })
+        message.error('生成失败，请重试')
       }
     }
   } catch (error) {
@@ -703,6 +760,22 @@ const refreshAppCover = async () => {
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
+/** 原生代码块跟滚到最新一行（流式生成时） */
+const scrollToLatestCode = async (forceFollow = false) => {
+  await nextTick()
+  scrollToBottom()
+  const root = messagesContainer.value
+  if (!root) return
+  const active =
+    (root.querySelector('.stream-code[data-streaming="1"]') as HTMLElement | null) ||
+    (root.querySelector('.ai-message:last-child .stream-code') as HTMLElement | null)
+  if (!active) return
+  // 生成中强制跟随；结束后若用户已上滚则不强拉
+  if (forceFollow || isGenerating.value) {
+    active.scrollTop = active.scrollHeight
   }
 }
 
@@ -1131,6 +1204,20 @@ onUnmounted(() => {
   border: 1px solid rgba(226, 232, 240, 0.9);
   color: var(--color-fg);
   padding: 8px 12px;
+}
+
+.stream-code {
+  margin: 0;
+  max-height: min(62vh, 720px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #0f172a;
+  background: transparent;
+  scroll-behavior: auto;
 }
 
 .message-avatar {
