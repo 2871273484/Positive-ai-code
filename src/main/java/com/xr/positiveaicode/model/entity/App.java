@@ -78,6 +78,12 @@ public class App implements Serializable {
     private Integer priority;
 
     /**
+     * 案例广场分类 id
+     */
+    @Column("categoryId")
+    private Long categoryId;
+
+    /**
      * 创建用户id
      */
     @Column("userId")

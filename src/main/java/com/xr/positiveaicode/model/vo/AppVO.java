@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class AppVO implements Serializable {
@@ -47,6 +48,26 @@ public class AppVO implements Serializable {
      * 优先级
      */
     private Integer priority;
+
+    /**
+     * 案例广场主分类 id（兼容，取标签列表第一个）
+     */
+    private Long categoryId;
+
+    /**
+     * 案例广场主分类名称（兼容）
+     */
+    private String categoryName;
+
+    /**
+     * 案例广场标签 id 列表（最多 3 个）
+     */
+    private List<Long> categoryIds;
+
+    /**
+     * 案例广场标签名称列表（最多 3 个）
+     */
+    private List<String> categoryNames;
 
     /**
      * 创建用户id

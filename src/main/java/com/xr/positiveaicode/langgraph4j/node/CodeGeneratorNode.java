@@ -25,16 +25,12 @@ public class CodeGeneratorNode {
             // 使用增强提示词作为发给 AI 的用户消息
             String userMessage = context.getEnhancedPrompt();
             CodeGenTypeEnum generationType = context.getGenerationType();
-            // 获取 AI 代码生成外观服务
             AiCodeGeneratorFacade codeGeneratorFacade = SpringContextUtil.getBean(AiCodeGeneratorFacade.class);
             log.info("开始生成代码，类型: {} ({})", generationType.getValue(), generationType.getText());
-            // 先使用固定的 appId (后续再整合到业务中)
-            Long appId = 1L;
-            // 调用流式代码生成
+            Long appId = context.getAppId() != null ? context.getAppId() : 1L;
             Flux<String> codeStream = codeGeneratorFacade.generateAndSaveCodeStream(userMessage, generationType, appId);
-            // 同步等待流式输出完成
-            codeStream.blockLast(Duration.ofMinutes(10)); // 最多等待 10 分钟
-            // 根据类型设置生成目录
+            // 演示路径同步等待完成；生产路径已在 CodeGenWorkflow.executeForApp 中直接透传 Facade 流
+            codeStream.blockLast(Duration.ofMinutes(10));
             String generatedCodeDir = String.format("%s/%s_%s", AppConstant.CODE_OUTPUT_ROOT_DIR, generationType.getValue(), appId);
             log.info("AI 代码生成完成，生成目录: {}", generatedCodeDir);
 

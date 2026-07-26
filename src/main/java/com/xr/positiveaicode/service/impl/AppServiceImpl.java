@@ -9,16 +9,18 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.xr.positiveaicode.ai.AiCodeGenTypeRoutingService;
 import com.xr.positiveaicode.ai.AiCodeGenTypeRoutingServiceFactory;
+import com.xr.positiveaicode.ai.CodeGenTypeRoutingHelper;
 import com.xr.positiveaicode.ai.monitor.MonitorContext;
 import com.xr.positiveaicode.ai.monitor.MonitorContextHolder;
 import com.xr.positiveaicode.constant.AppConstant;
-import com.xr.positiveaicode.core.AiCodeGeneratorFacade;
 import com.xr.positiveaicode.core.builder.VueProjectBuilder;
 import com.xr.positiveaicode.core.handler.StreamHandlerExecutor;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
 import com.xr.positiveaicode.exception.ThrowUtils;
+import com.xr.positiveaicode.langgraph4j.CodeGenWorkflow;
 import com.xr.positiveaicode.mapper.AppMapper;
+import com.xr.positiveaicode.service.AppCoverService;
 import com.xr.positiveaicode.model.dto.app.AppAddRequest;
 import com.xr.positiveaicode.model.dto.app.AppQueryRequest;
 import com.xr.positiveaicode.model.entity.App;
@@ -27,13 +29,15 @@ import com.xr.positiveaicode.model.enums.ChatHistoryMessageTypeEnum;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
 import com.xr.positiveaicode.model.vo.AppVO;
 import com.xr.positiveaicode.model.vo.UserVO;
+import com.xr.positiveaicode.model.entity.AppCategory;
+import com.xr.positiveaicode.service.AppCategoryService;
 import com.xr.positiveaicode.service.AppService;
 import com.xr.positiveaicode.service.ChatHistoryService;
 import com.xr.positiveaicode.service.ScreenshotService;
 import com.xr.positiveaicode.service.UserService;
+import com.xr.positiveaicode.utils.AppNameUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -59,7 +63,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private UserService userService;
 
     @Resource
-    private AiCodeGeneratorFacade aiCodeGeneratorFacade;
+    private CodeGenWorkflow codeGenWorkflow;
 
     @Resource
     private ChatHistoryService chatHistoryService;
@@ -74,7 +78,13 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private ScreenshotService screenshotService;
 
     @Resource
+    private AppCoverService appCoverService;
+
+    @Resource
     private AiCodeGenTypeRoutingServiceFactory aiCodeGenTypeRoutingServiceFactory;
+
+    @Resource
+    private AppCategoryService appCategoryService;
 
     @Override
     public AppVO getAppVO(App app) {
@@ -83,6 +93,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         }
         AppVO appVO = new AppVO();
         BeanUtil.copyProperties(app, appVO);
+        // 旧数据可能用 prompt 前 12 字当名称，展示时归一成短标题
+        appVO.setAppName(AppNameUtils.resolveDisplayName(app.getAppName(), app.getInitPrompt()));
         // 关联查询用户信息
         Long userId = app.getUserId();
         if (userId != null) {
@@ -90,6 +102,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             UserVO userVO = userService.getUserVO(user);
             appVO.setUser(userVO);
         }
+        fillCategoryFields(appVO, appCategoryService.listCategoryIdsByAppId(app.getId()));
         return appVO;
     }
 
@@ -105,10 +118,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         String codeGenType = appQueryRequest.getCodeGenType();
         String deployKey = appQueryRequest.getDeployKey();
         Integer priority = appQueryRequest.getPriority();
+        Long categoryId = appQueryRequest.getCategoryId();
         Long userId = appQueryRequest.getUserId();
         String sortField = appQueryRequest.getSortField();
         String sortOrder = appQueryRequest.getSortOrder();
-        return QueryWrapper.create()
+        QueryWrapper queryWrapper = QueryWrapper.create()
                 .eq("id", id)
                 .like("appName", appName)
                 .like("cover", cover)
@@ -118,6 +132,16 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 .eq("priority", priority)
                 .eq("userId", userId)
                 .orderBy(sortField, "ascend".equals(sortOrder));
+        // 按标签筛选：命中关联表中任意标签
+        if (categoryId != null && categoryId > 0) {
+            List<Long> appIds = appCategoryService.listAppIdsByCategoryId(categoryId);
+            if (CollUtil.isEmpty(appIds)) {
+                queryWrapper.eq("id", -1L);
+            } else {
+                queryWrapper.in("id", appIds);
+            }
+        }
+        return queryWrapper;
     }
 
     @Override
@@ -131,12 +155,57 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                 .collect(Collectors.toSet());
         Map<Long, UserVO> userVOMap = userService.listByIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, userService::getUserVO));
+        List<Long> appIds = appList.stream().map(App::getId).collect(Collectors.toList());
+        Map<Long, List<Long>> appCategoryMap = appCategoryService.listCategoryIdsByAppIds(appIds);
+        Set<Long> allCategoryIds = appCategoryMap.values().stream()
+                .flatMap(List::stream)
+                .collect(Collectors.toSet());
+        Map<Long, String> categoryNameMap = CollUtil.isEmpty(allCategoryIds)
+                ? Map.of()
+                : appCategoryService.listByIds(allCategoryIds).stream()
+                .collect(Collectors.toMap(AppCategory::getId, AppCategory::getName, (a, b) -> a));
         return appList.stream().map(app -> {
-            AppVO appVO = getAppVO(app);
-            UserVO userVO = userVOMap.get(app.getUserId());
-            appVO.setUser(userVO);
+            AppVO appVO = new AppVO();
+            BeanUtil.copyProperties(app, appVO);
+            appVO.setAppName(AppNameUtils.resolveDisplayName(app.getAppName(), app.getInitPrompt()));
+            appVO.setUser(userVOMap.get(app.getUserId()));
+            List<Long> cids = appCategoryMap.getOrDefault(app.getId(), List.of());
+            if (CollUtil.isEmpty(cids) && app.getCategoryId() != null) {
+                cids = List.of(app.getCategoryId());
+            }
+            List<String> names = cids.stream()
+                    .map(categoryNameMap::get)
+                    .filter(StrUtil::isNotBlank)
+                    .collect(Collectors.toList());
+            appVO.setCategoryIds(cids);
+            appVO.setCategoryNames(names);
+            if (CollUtil.isNotEmpty(cids)) {
+                appVO.setCategoryId(cids.get(0));
+                appVO.setCategoryName(names.isEmpty() ? null : names.get(0));
+            }
             return appVO;
         }).collect(Collectors.toList());
+    }
+
+    private void fillCategoryFields(AppVO appVO, List<Long> categoryIds) {
+        List<Long> cids = categoryIds == null ? List.of() : categoryIds;
+        if (CollUtil.isEmpty(cids) && appVO.getCategoryId() != null) {
+            cids = List.of(appVO.getCategoryId());
+        }
+        appVO.setCategoryIds(cids);
+        if (CollUtil.isEmpty(cids)) {
+            appVO.setCategoryNames(List.of());
+            return;
+        }
+        Map<Long, String> nameMap = appCategoryService.listByIds(cids).stream()
+                .collect(Collectors.toMap(AppCategory::getId, AppCategory::getName, (a, b) -> a));
+        List<String> names = cids.stream()
+                .map(nameMap::get)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toList());
+        appVO.setCategoryNames(names);
+        appVO.setCategoryId(cids.get(0));
+        appVO.setCategoryName(names.isEmpty() ? null : names.get(0));
     }
 
 
@@ -167,9 +236,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
                         .appId(appId.toString())
                         .build()
         );
-        // 7. 调用 AI 生成代码（流式）
-        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
-        // 8. 收集 AI 响应内容并在完成后记录到对话历史
+        // 7. 走代码生成工作流（图片收集 → 提示词增强 → 路由 → 生成 → 构建）
+        Flux<String> codeStream = codeGenWorkflow.executeForApp(appId, message, codeGenTypeEnum);
+        // 8. 收集 AI 响应内容并在完成后记录到对话历史（封面由代码落盘事件触发）
         return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum)
                 .doFinally(signalType -> {
                     // 流结束时清理（无论成功/失败/取消）
@@ -234,7 +303,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
         // 10. 构建应用访问 URL
         String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
-        // 11. 异步生成截图并更新应用封面
+        // 11. 异步生成截图并更新应用封面（优先截本地主页）
         generateAppScreenshotAsync(appId, appDeployUrl);
         return appDeployUrl;
 
@@ -244,20 +313,35 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
      * 异步生成应用截图并更新封面
      *
      * @param appId  应用ID
-     * @param appUrl 应用访问URL
+     * @param appUrl 应用访问URL（兼容旧调用，实际优先截本地主页）
      */
     @Override
+    public String generateAppCover(Long appId) {
+        return appCoverService.generateCover(appId);
+    }
+
+    @Override
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
-        // 使用虚拟线程异步执行
         Thread.startVirtualThread(() -> {
-            // 调用截图服务生成截图并上传
-            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
-            // 更新应用封面字段
-            App updateApp = new App();
-            updateApp.setId(appId);
-            updateApp.setCover(screenshotUrl);
-            boolean updated = this.updateById(updateApp);
-            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            try {
+                Thread.sleep(1000L);
+                String cover = appCoverService.generateCover(appId);
+                if (StrUtil.isBlank(cover) && StrUtil.isNotBlank(appUrl)) {
+                    // 回退：直接截传入 URL（部署域名场景）
+                    String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+                    if (StrUtil.isNotBlank(screenshotUrl)) {
+                        App updateApp = new App();
+                        updateApp.setId(appId);
+                        updateApp.setCover(screenshotUrl);
+                        this.updateById(updateApp);
+                        log.info("应用封面（部署 URL）更新成功, appId={}, cover={}", appId, screenshotUrl);
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                log.error("异步生成应用封面失败, appId={}: {}", appId, e.getMessage(), e);
+            }
         });
     }
 
@@ -298,11 +382,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         App app = new App();
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
-        // 应用名称暂时为 initPrompt 前 12 位
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        // 使用 AI 智能选择代码生成类型（多例模式）
+        // 应用名称：与页面强相关的短标题（如「音乐网站」「计算器网站」）
+        app.setAppName(AppNameUtils.deriveAppName(initPrompt));
+        // 使用 AI 智能选择代码生成类型（失败时启发式兜底，避免创建中断）
         AiCodeGenTypeRoutingService routingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
-        CodeGenTypeEnum selectedCodeGenType = routingService.routeCodeGenType(initPrompt);
+        CodeGenTypeEnum selectedCodeGenType = CodeGenTypeRoutingHelper.routeSafely(routingService, initPrompt);
         app.setCodeGenType(selectedCodeGenType.getValue());
         // 插入数据库
         boolean result = this.save(app);

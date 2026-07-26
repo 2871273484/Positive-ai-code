@@ -39,6 +39,11 @@ public class WorkflowContext implements Serializable {
     private String originalPrompt;
 
     /**
+     * 业务应用 ID（生产路径传入，演示路径可为空）
+     */
+    private Long appId;
+
+    /**
      * 图片资源字符串
      */
     private String imageListStr;

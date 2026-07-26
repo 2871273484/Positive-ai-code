@@ -1,5 +1,6 @@
 package com.xr.positiveaicode.config;
 
+import com.xr.positiveaicode.ai.http.DeepSeekHttpClientFactory;
 import com.xr.positiveaicode.ai.monitor.AiModelMonitorListener;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
@@ -8,9 +9,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Scope;
 
+import java.time.Duration;
 import java.util.List;
 
 @Configuration
@@ -44,6 +45,10 @@ public class StreamingChatModelConfig {
                 .modelName(modelName)
                 .maxTokens(maxTokens)
                 .temperature(temperature)
+                .connectTimeout(Duration.ofSeconds(10))
+                .timeout(Duration.ofSeconds(120))
+                .httpClientBuilder(DeepSeekHttpClientFactory.thinkingDisabledBuilder(
+                        Duration.ofSeconds(10), Duration.ofSeconds(120)))
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .listeners(List.of(aiModelMonitorListener))

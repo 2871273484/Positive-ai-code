@@ -17,13 +17,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 图片搜索工具
+ * 图片搜索工具（短超时，失败立即返回空列表，不阻塞生成）
  */
 @Slf4j
 @Component
 public class ImageSearchTool {
 
     private static final String PEXELS_API_URL = "https://api.pexels.com/v1/search";
+    /** 外网不稳时快速失败，避免拖住整站生成 */
+    private static final int TIMEOUT_MS = 3000;
+    private static final int SEARCH_COUNT = 3;
 
     @Value("${pexels.api-key}")
     private String pexelsApiKey;
@@ -31,20 +34,25 @@ public class ImageSearchTool {
     @Tool("搜索内容相关的图片，用于网站内容展示")
     public List<ImageResource> searchContentImages(@P("搜索关键词") String query) {
         List<ImageResource> imageList = new ArrayList<>();
-        int searchCount = 12;
-        // 调用 API，注意释放资源
         try (HttpResponse response = HttpRequest.get(PEXELS_API_URL)
                 .header("Authorization", pexelsApiKey)
                 .form("query", query)
-                .form("per_page", searchCount)
+                .form("per_page", SEARCH_COUNT)
                 .form("page", 1)
+                .timeout(TIMEOUT_MS)
                 .execute()) {
             if (response.isOk()) {
                 JSONObject result = JSONUtil.parseObj(response.body());
                 JSONArray photos = result.getJSONArray("photos");
+                if (photos == null) {
+                    return imageList;
+                }
                 for (int i = 0; i < photos.size(); i++) {
                     JSONObject photo = photos.getJSONObject(i);
                     JSONObject src = photo.getJSONObject("src");
+                    if (src == null) {
+                        continue;
+                    }
                     imageList.add(ImageResource.builder()
                             .category(ImageCategoryEnum.CONTENT)
                             .description(photo.getStr("alt", query))
@@ -53,7 +61,7 @@ public class ImageSearchTool {
                 }
             }
         } catch (Exception e) {
-            log.error("Pexels API 调用失败: {}", e.getMessage(), e);
+            log.warn("Pexels 搜索超时或失败，跳过配图 query={}: {}", query, e.getMessage());
         }
         return imageList;
     }

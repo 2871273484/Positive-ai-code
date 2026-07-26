@@ -1,6 +1,7 @@
 package com.xr.positiveaicode.controller;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.paginate.Page;
@@ -21,12 +22,15 @@ import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
 import com.xr.positiveaicode.model.vo.AppVO;
 import com.xr.positiveaicode.ratelimit.annotation.RateLimit;
 import com.xr.positiveaicode.ratelimit.enums.RateLimitType;
+import com.xr.positiveaicode.service.AppCategoryService;
 import com.xr.positiveaicode.service.AppService;
 import com.xr.positiveaicode.service.ProjectDownloadService;
 import com.xr.positiveaicode.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.MediaType;
@@ -46,6 +50,7 @@ import java.util.Map;
  *
  * @author Positive
  */
+@Slf4j
 @RestController
 @RequestMapping("/app")
 public class AppController {
@@ -59,6 +64,9 @@ public class AppController {
 
     @Resource
     private ProjectDownloadService projectDownloadService;
+
+    @Resource
+    private AppCategoryService appCategoryService;
 
     /**
      * 下载应用代码
@@ -152,6 +160,7 @@ public class AppController {
      * @return 删除结果
      */
     @PostMapping("/delete")
+    @CacheEvict(value = "good_app_page", allEntries = true)
     public BaseResponse<Boolean> deleteApp(@RequestBody DeleteRequest deleteRequest, HttpServletRequest request) {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -250,6 +259,7 @@ public class AppController {
      */
     @PostMapping("/admin/delete")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @CacheEvict(value = "good_app_page", allEntries = true)
     public BaseResponse<Boolean> deleteAppByAdmin(@RequestBody DeleteRequest deleteRequest) {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -270,6 +280,7 @@ public class AppController {
      */
     @PostMapping("/admin/update")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @CacheEvict(value = "good_app_page", allEntries = true)
     public BaseResponse<Boolean> updateAppByAdmin(@RequestBody AppAdminUpdateRequest appAdminUpdateRequest) {
         if (appAdminUpdateRequest == null || appAdminUpdateRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -278,12 +289,45 @@ public class AppController {
         // 判断是否存在
         App oldApp = appService.getById(id);
         ThrowUtils.throwIf(oldApp == null, ErrorCode.NOT_FOUND_ERROR);
-        App app = new App();
-        BeanUtil.copyProperties(appAdminUpdateRequest, app);
-        // 设置编辑时间
-        app.setEditTime(LocalDateTime.now());
-        boolean result = appService.updateById(app);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+
+        boolean needUpdateApp = appAdminUpdateRequest.getAppName() != null
+                || appAdminUpdateRequest.getCover() != null
+                || appAdminUpdateRequest.getPriority() != null;
+        if (needUpdateApp) {
+            App app = new App();
+            app.setId(id);
+            if (appAdminUpdateRequest.getAppName() != null) {
+                app.setAppName(appAdminUpdateRequest.getAppName());
+            }
+            if (appAdminUpdateRequest.getCover() != null) {
+                app.setCover(appAdminUpdateRequest.getCover());
+            }
+            if (appAdminUpdateRequest.getPriority() != null) {
+                app.setPriority(appAdminUpdateRequest.getPriority());
+            }
+            app.setEditTime(LocalDateTime.now());
+            boolean result = appService.updateById(app);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        }
+
+        // 标签：显式传入 categoryIds（可多选最多 3）；或兼容单个 categoryId；精选时自动补一个
+        if (appAdminUpdateRequest.getCategoryIds() != null) {
+            appCategoryService.replaceAppCategories(id, appAdminUpdateRequest.getCategoryIds());
+        } else if (appAdminUpdateRequest.getCategoryId() != null) {
+            appCategoryService.replaceAppCategories(id, List.of(appAdminUpdateRequest.getCategoryId()));
+        } else {
+            Integer newPriority = appAdminUpdateRequest.getPriority();
+            List<Long> existing = appCategoryService.listCategoryIdsByAppId(id);
+            if (newPriority != null
+                    && newPriority.equals(AppConstant.GOOD_APP_PRIORITY)
+                    && CollUtil.isEmpty(existing)
+                    && oldApp.getCategoryId() == null) {
+                Long categoryId = appCategoryService.resolveCategoryId(oldApp.getAppName(), oldApp.getInitPrompt());
+                if (categoryId != null) {
+                    appCategoryService.replaceAppCategories(id, List.of(categoryId));
+                }
+            }
+        }
         return ResultUtils.success(true);
     }
 
@@ -345,23 +389,45 @@ public class AppController {
         User loginUser = userService.getLoginUser(request);
         // 调用服务生成代码（流式）
         Flux<String> contentFlux = appService.chatToGenCode(appId, message, loginUser);
-        // 转换为 ServerSentEvent 格式
+        // 转换为 ServerSentEvent 格式；连接超时等错误要推给前端，避免一直转圈
         return contentFlux
                 .map(chunk -> {
-                    // 将内容包装成JSON对象
                     Map<String, String> wrapper = Map.of("d", chunk);
                     String jsonData = JSONUtil.toJsonStr(wrapper);
                     return ServerSentEvent.<String>builder()
                             .data(jsonData)
                             .build();
                 })
+                .onErrorResume(error -> {
+                    log.error("代码生成流失败, appId={}: {}", appId, error.getMessage(), error);
+                    String tip = friendlyStreamError(error);
+                    Map<String, Object> errorData = Map.of(
+                            "error", true,
+                            "code", ErrorCode.SYSTEM_ERROR.getCode(),
+                            "message", tip
+                    );
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("business-error")
+                            .data(JSONUtil.toJsonStr(errorData))
+                            .build());
+                })
                 .concatWith(Mono.just(
-                        // 发送结束事件
                         ServerSentEvent.<String>builder()
                                 .event("done")
                                 .data("")
                                 .build()
                 ));
+    }
+
+    private static String friendlyStreamError(Throwable error) {
+        String msg = error != null && error.getMessage() != null ? error.getMessage() : "";
+        if (msg.contains("SocketTimeoutException") || msg.contains("timed out") || msg.contains("timeout")) {
+            return "连接 AI 或素材服务超时，请检查网络后重试（可稍后再次生成）";
+        }
+        if (msg.contains("Connection") || msg.contains("connect")) {
+            return "无法连接外部服务，请检查网络后重试";
+        }
+        return StrUtil.blankToDefault(msg, "生成失败，请重试");
     }
     /**
      * 应用部署
@@ -382,6 +448,21 @@ public class AppController {
         return ResultUtils.success(deployUrl);
     }
 
-
+    /**
+     * 生成 / 刷新应用封面（截取网站主页）
+     */
+    @PostMapping("/generate/cover")
+    public BaseResponse<String> generateAppCover(@RequestParam Long appId, HttpServletRequest request) {
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        User loginUser = userService.getLoginUser(request);
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限操作该应用");
+        }
+        String coverUrl = appService.generateAppCover(appId);
+        ThrowUtils.throwIf(StrUtil.isBlank(coverUrl), ErrorCode.OPERATION_ERROR, "封面生成失败，请确认网站已生成且本机 Chrome 可用");
+        return ResultUtils.success(coverUrl);
+    }
 
 }

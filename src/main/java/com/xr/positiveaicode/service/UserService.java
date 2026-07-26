@@ -91,4 +91,14 @@ public interface UserService extends IService<User> {
      * @return
      */
     QueryWrapper getQueryWrapper(UserQueryRequest userQueryRequest);
+
+    /**
+     * 更新当前登录用户资料（昵称、头像）
+     */
+    LoginUserVO updateMyProfile(String userName, String userAvatar, HttpServletRequest request);
+
+    /**
+     * 修改当前登录用户密码
+     */
+    boolean updateMyPassword(String oldPassword, String newPassword, String checkPassword, HttpServletRequest request);
 }

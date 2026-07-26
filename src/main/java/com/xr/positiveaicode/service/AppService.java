@@ -42,5 +42,13 @@ public interface AppService extends IService<App> {
 
     void generateAppScreenshotAsync(Long appId, String appUrl);
 
+    /**
+     * 同步生成应用封面（网站主页截图）
+     *
+     * @param appId 应用 ID
+     * @return 封面 URL
+     */
+    String generateAppCover(Long appId);
+
     Long createApp(AppAddRequest appAddRequest, User loginUser);
 }

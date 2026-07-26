@@ -110,6 +110,20 @@ export async function deployApp(body: API.AppDeployRequest, options?: { [key: st
   })
 }
 
+/** 生成 / 刷新应用封面（网站主页截图） POST /app/generate/cover */
+export async function generateAppCover(
+  params: { appId: number | string },
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseString>('/app/generate/cover', {
+    method: 'POST',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 GET /app/get/vo */
 export async function getAppVoById(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

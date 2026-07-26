@@ -17,13 +17,18 @@ router.beforeEach(async (to, from, next) => {
     loginUser = loginUserStore.loginUser
     firstFetchLoginUser = false
   }
-  const toUrl = to.fullPath
-  if (toUrl.startsWith('/admin')) {
-    if (!loginUser || loginUser.userRole !== 'admin') {
-      message.error('没有权限')
-      next(`/user/login?redirect=${to.fullPath}`)
+  // 用户管理 / 应用管理 / 案例分类等后台页：仅管理员
+  if (to.path.startsWith('/admin')) {
+    if (!loginUser?.id || loginUser.userRole !== 'admin') {
+      message.error('仅管理员可访问')
+      next(loginUser?.id ? '/' : `/user/login?redirect=${to.fullPath}`)
       return
     }
+  }
+  if ((to.path === '/user/profile' || to.path === '/my/apps') && !loginUser?.id) {
+    message.warning('请先登录')
+    next(`/user/login?redirect=${to.fullPath}`)
+    return
   }
   next()
 })

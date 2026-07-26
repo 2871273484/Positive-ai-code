@@ -1,130 +1,106 @@
 <template>
   <a-layout-header class="header">
-    <a-row :wrap="false">
-      <!-- 左侧：Logo和标题 -->
-      <a-col flex="200px">
-        <RouterLink to="/">
-          <div class="header-left">
-            <img
-              class="logo"
-              src="https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/samantha/logo-icon-white-bg.png"
-              alt="Logo"
-            />
-            <h1 class="site-title">Positive</h1>
-          </div>
-        </RouterLink>
-      </a-col>
-      <!-- 中间：导航菜单 -->
-      <a-col flex="auto">
-        <a-menu
-          v-model:selectedKeys="selectedKeys"
-          mode="horizontal"
-          :items="menuItems"
-          @click="handleMenuClick"
+    <div class="header-inner">
+      <RouterLink to="/" class="brand">
+        <img
+          class="logo"
+          src="https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/samantha/logo-icon-white-bg.png"
+          alt="Positive"
         />
-      </a-col>
-      <!-- 右侧：用户操作区域 -->
-      <a-col>
-        <div class="user-login-status">
-          <div v-if="loginUserStore.loginUser.id">
-            <a-dropdown>
-              <a-space>
-                <a-avatar :src="loginUserStore.loginUser.userAvatar" />
-                {{ loginUserStore.loginUser.userName ?? '无名' }}
-              </a-space>
-              <template #overlay>
-                <a-menu>
-                  <a-menu-item @click="doLogout">
-                    <LogoutOutlined />
-                    退出登录
-                  </a-menu-item>
-                </a-menu>
-              </template>
-            </a-dropdown>
-          </div>
-          <div v-else>
-            <a-button type="primary" href="/user/login">登录</a-button>
-          </div>
-        </div>
-      </a-col>
-    </a-row>
+        <span class="site-title">Positive</span>
+      </RouterLink>
+
+      <nav class="nav-links">
+        <a
+          v-for="item in menuItems"
+          :key="String(item?.key)"
+          href="javascript:void(0)"
+          class="nav-link"
+          :class="{ active: selectedKeys.includes(String(item?.key)) }"
+          @click="onNavClick(item)"
+        >
+          {{ item?.title }}
+        </a>
+      </nav>
+
+      <div class="user-area">
+        <template v-if="isLoggedIn">
+          <a-dropdown>
+            <button type="button" class="user-chip">
+              <a-avatar :size="36" :src="loginUser.userAvatar" class="user-avatar">
+                {{ loginUser.userName?.charAt(0) || 'U' }}
+              </a-avatar>
+              <span class="user-name">{{ loginUser.userName ?? '无名' }}</span>
+            </button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item @click="goProfile">
+                  <UserOutlined />
+                  个人中心
+                </a-menu-item>
+                <a-menu-item @click="doLogout">
+                  <LogoutOutlined />
+                  退出登录
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+        </template>
+        <RouterLink v-else to="/user/login" class="login-btn">登录</RouterLink>
+      </div>
+    </div>
   </a-layout-header>
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { type MenuProps, message } from 'ant-design-vue'
+import { storeToRefs } from 'pinia'
+import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
-import { LogoutOutlined, HomeOutlined } from '@ant-design/icons-vue'
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons-vue'
 
 const loginUserStore = useLoginUserStore()
+const { loginUser } = storeToRefs(loginUserStore)
 const router = useRouter()
-// 当前选中菜单
 const selectedKeys = ref<string[]>(['/'])
-// 监听路由变化，更新当前选中菜单
-router.afterEach((to, from, next) => {
+
+router.afterEach((to) => {
   selectedKeys.value = [to.path]
 })
 
-// 菜单配置项
-const originItems = [
-  {
-    key: '/',
-    icon: () => h(HomeOutlined),
-    label: '主页',
-    title: '主页',
-  },
-  {
-    key: '/admin/userManage',
-    label: '用户管理',
-    title: '用户管理',
-  },
-  {
-    key: '/admin/appManage',
-    label: '应用管理',
-    title: '应用管理',
-  },
-  {
-    key: 'others',
-    label: h(
-      'a',
-      { href: 'https://aka.ms/AnaheimRW/ad6-doubao-cid154-pid4/apr25', target: '_blank' },
-      '豆包',
-    ),
-    title: '豆包',
-  },
-]
+const isAdmin = computed(() => loginUser.value?.userRole === 'admin')
+const isLoggedIn = computed(() => !!loginUser.value?.id)
 
-// 过滤菜单项
-const filterMenus = (menus = [] as MenuProps['items']) => {
-  return menus?.filter((menu) => {
-    const menuKey = menu?.key as string
-    if (menuKey?.startsWith('/admin')) {
-      const loginUser = loginUserStore.loginUser
-      if (!loginUser || loginUser.userRole !== 'admin') {
-        return false
-      }
-    }
-    return true
-  })
+const menuItems = computed(() => {
+  const items = [
+    { key: '/', label: '主页', title: '主页' },
+    ...(isLoggedIn.value ? [{ key: '/my/apps', label: '我的应用', title: '我的应用' }] : []),
+    // 用户管理 / 应用管理 / 案例分类：仅管理员可见
+    ...(isAdmin.value
+      ? [
+          { key: '/admin/userManage', label: '用户管理', title: '用户管理' },
+          { key: '/admin/appManage', label: '应用管理', title: '应用管理' },
+          { key: '/admin/categoryManage', label: '案例分类', title: '案例分类' },
+        ]
+      : []),
+  ]
+  return items
+})
+
+const goProfile = () => {
+  router.push('/user/profile')
 }
 
-// 展示在菜单的路由数组
-const menuItems = computed<MenuProps['items']>(() => filterMenus(originItems))
-
-// 处理菜单点击
-const handleMenuClick: MenuProps['onClick'] = (e) => {
-  const key = e.key as string
+const onNavClick = (item: { key?: string | number } | null | undefined) => {
+  const key = String(item?.key ?? '')
   selectedKeys.value = [key]
-  // 跳转到对应页面
   if (key.startsWith('/')) {
     router.push(key)
   }
 }
 
-// 退出登录
 const doLogout = async () => {
   const res = await userLogout()
   if (res.data.code === 0) {
@@ -141,28 +117,130 @@ const doLogout = async () => {
 
 <style scoped>
 .header {
-  background: #fff;
-  padding: 0 24px;
+  background: transparent !important;
+  padding: 0;
+  height: auto;
+  line-height: normal;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-.header-left {
+.header-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px 24px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  flex-shrink: 0;
 }
 
 .logo {
-  height: 48px;
-  width: 48px;
+  height: 36px;
+  width: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
 .site-title {
   margin: 0;
-  font-size: 18px;
-  color: #1890ff;
+  font-family: 'Varela Round', 'Nunito Sans', 'PingFang SC', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
 }
 
-.ant-menu-horizontal {
-  border-bottom: none !important;
+.nav-links {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nav-link {
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: #64748b;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    color 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.user-area {
+  flex-shrink: 0;
+}
+
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+.user-avatar {
+  background: linear-gradient(135deg, #7dd3c0, #93c5fd, #f9a8d4);
+}
+
+.user-name {
+  font-size: 14px;
+  color: #334155;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16);
+}
+
+@media (max-width: 768px) {
+  .header-inner {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .nav-links {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>

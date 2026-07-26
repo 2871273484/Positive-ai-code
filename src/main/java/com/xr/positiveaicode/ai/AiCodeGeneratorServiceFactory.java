@@ -1,9 +1,6 @@
 package com.xr.positiveaicode.ai;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.xr.positiveaicode.ai.guardrail.PromptSafetyInputGuardrail;
-import com.xr.positiveaicode.ai.guardrail.RetryOutputGuardrail;
 import com.xr.positiveaicode.ai.tools.*;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
@@ -20,7 +17,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import java.time.Duration;
 
 @Configuration
 @Slf4j
@@ -44,44 +40,18 @@ public class AiCodeGeneratorServiceFactory {
     }
 
     /**
-     * AI 服务实例缓存
-     * 缓存策略：
-     * - 最大缓存 1000 个实例
-     * - 写入后 30 分钟过期
-     * - 访问后 10 分钟过期
-     */
-    /**
-     * AI 服务实例缓存
-     */
-    private final Cache<String, AiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
-            .maximumSize(1000)
-            .expireAfterWrite(Duration.ofMinutes(30))
-            .expireAfterAccess(Duration.ofMinutes(10))
-            .removalListener((key, value, cause) -> {
-                log.debug("AI 服务实例被移除，缓存键: {}, 原因: {}", key, cause);
-            })
-            .build();
-
-    /**
-     * 根据 appId 获取服务（带缓存）这个方法是为了兼容历史逻辑
+     * 根据 appId 获取服务（兼容历史逻辑）
      */
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId) {
         return getAiCodeGeneratorService(appId, CodeGenTypeEnum.HTML);
     }
 
     /**
-     * 根据 appId 和代码生成类型获取服务（带缓存）
+     * 根据 appId 和代码生成类型获取服务。
+     * 流式 ChatModel 非并发安全：每次新建（含新的 prototype 模型），避免上次未结束的 SSE 卡住后续生成。
      */
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
-        String cacheKey = buildCacheKey(appId, codeGenType);
-        return serviceCache.get(cacheKey, key -> createAiCodeGeneratorService(appId, codeGenType));
-    }
-
-    /**
-     * 构建缓存键
-     */
-    private String buildCacheKey(long appId, CodeGenTypeEnum codeGenType) {
-        return appId + "_" + codeGenType.getValue();
+        return createAiCodeGeneratorService(appId, codeGenType);
     }
 
     /**
@@ -89,14 +59,16 @@ public class AiCodeGeneratorServiceFactory {
      */
     private AiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
         // 根据 appId 构建独立的对话记忆
+        // HTML/多文件上下文不宜过长，否则 DeepSeek 流式极易中途停顿
+        int maxMessages = codeGenType == CodeGenTypeEnum.VUE_PROJECT ? 40 : 8;
+        int loadLimit = codeGenType == CodeGenTypeEnum.VUE_PROJECT ? 20 : 6;
         MessageWindowChatMemory chatMemory = MessageWindowChatMemory
                 .builder()
                 .id(appId)
                 .chatMemoryStore(redisChatMemoryStore)
-                .maxMessages(50)
+                .maxMessages(maxMessages)
                 .build();
-        // 从数据库加载历史对话到记忆中
-        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, 20);
+        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, loadLimit);
         // 根据代码生成类型选择不同的模型配置
         return switch (codeGenType) {
             case VUE_PROJECT -> {
@@ -116,15 +88,13 @@ public class AiCodeGeneratorServiceFactory {
                         .build();
             }
             case HTML, MULTI_FILE -> {
-                // 使用多例模式的 StreamingChatModel 解决并发问题
+                // 每次新取 prototype StreamingChatModel，避免连接串线
                 StreamingChatModel openAiStreamingChatModel = SpringContextUtil.getBean("streamingChatModelPrototype", StreamingChatModel.class);
                 yield AiServices.builder(AiCodeGeneratorService.class)
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
                         .chatMemory(chatMemory)
-                        .inputGuardrails(new PromptSafetyInputGuardrail())// 添加输入护轨
-//                        .outputGuardrails(new RetryOutputGuardrail())// 添加输出护轨
-                        .maxSequentialToolsInvocations(30)  // 最多连续调用 20 次工具
+                        .inputGuardrails(new PromptSafetyInputGuardrail())
                         .build();
             }
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,

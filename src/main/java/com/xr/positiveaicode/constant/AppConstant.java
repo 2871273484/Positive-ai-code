@@ -26,4 +26,9 @@ public interface AppConstant {
      */
     String CODE_DEPLOY_HOST = "http://localhost";
 
+    /**
+     * 应用预览基础地址（用于生成后截取封面）
+     */
+    String CODE_PREVIEW_BASE_URL = "http://localhost:8080/api/static";
+
 }

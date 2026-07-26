@@ -2,8 +2,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import UserLoginPage from '@/pages/user/UserLoginPage.vue'
 import UserRegisterPage from '@/pages/user/UserRegisterPage.vue'
+import UserProfilePage from '@/pages/user/UserProfilePage.vue'
+import MyAppsPage from '@/pages/user/MyAppsPage.vue'
 import UserManagePage from '@/pages/admin/UserManagePage.vue'
 import AppManagePage from '@/pages/admin/AppManagePage.vue'
+import CategoryManagePage from '@/pages/admin/CategoryManagePage.vue'
 import AppChatPage from '@/pages/app/AppChatPage.vue'
 import AppEditPage from '@/pages/app/AppEditPage.vue'
 import ChatManagePage from "@/pages/admin/ChatManagePage.vue";
@@ -27,6 +30,16 @@ const router = createRouter({
       component: UserRegisterPage,
     },
     {
+      path: '/user/profile',
+      name: '个人中心',
+      component: UserProfilePage,
+    },
+    {
+      path: '/my/apps',
+      name: '我的应用',
+      component: MyAppsPage,
+    },
+    {
       path: '/admin/userManage',
       name: '用户管理',
       component: UserManagePage,
@@ -35,6 +48,11 @@ const router = createRouter({
       path: '/admin/appManage',
       name: '应用管理',
       component: AppManagePage,
+    },
+    {
+      path: '/admin/categoryManage',
+      name: '案例分类',
+      component: CategoryManagePage,
     },
     {
       path: '/admin/chatManage',

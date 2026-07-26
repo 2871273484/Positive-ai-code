@@ -1,6 +1,7 @@
 package com.xr.positiveaicode.langgraph4j.node;
 
 import com.xr.positiveaicode.ai.AiCodeGenTypeRoutingService;
+import com.xr.positiveaicode.ai.CodeGenTypeRoutingHelper;
 import com.xr.positiveaicode.langgraph4j.state.WorkflowContext;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
 import com.xr.positiveaicode.utils.SpringContextUtil;
@@ -18,19 +19,16 @@ public class RouterNode {
             WorkflowContext context = WorkflowContext.getContext(state);
             log.info("执行节点: 智能路由");
 
-            CodeGenTypeEnum generationType;
-            try {
-                // 获取AI路由服务
+            CodeGenTypeEnum generationType = context.getGenerationType();
+            if (generationType != null) {
+                // 生产路径已按应用固定类型，跳过重新路由
+                log.info("使用预设代码生成类型: {} ({})", generationType.getValue(), generationType.getText());
+            } else {
                 AiCodeGenTypeRoutingService routingService = SpringContextUtil.getBean(AiCodeGenTypeRoutingService.class);
-                // 根据原始提示词进行智能路由
-                generationType = routingService.routeCodeGenType(context.getOriginalPrompt());
-                log.info("AI智能路由完成，选择类型: {} ({})", generationType.getValue(), generationType.getText());
-            } catch (Exception e) {
-                log.error("AI智能路由失败，使用默认HTML类型: {}", e.getMessage());
-                generationType = CodeGenTypeEnum.HTML;
+                generationType = CodeGenTypeRoutingHelper.routeSafely(routingService, context.getOriginalPrompt());
+                log.info("智能路由完成，选择类型: {} ({})", generationType.getValue(), generationType.getText());
             }
 
-            // 更新状态
             context.setCurrentStep("智能路由");
             context.setGenerationType(generationType);
             return WorkflowContext.saveContext(context);

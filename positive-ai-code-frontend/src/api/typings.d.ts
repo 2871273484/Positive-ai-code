@@ -8,6 +8,8 @@ declare namespace API {
     appName?: string
     cover?: string
     priority?: number
+    categoryId?: number
+    categoryIds?: number[]
   }
 
   type AppDeployRequest = {
@@ -26,6 +28,7 @@ declare namespace API {
     codeGenType?: string
     deployKey?: string
     priority?: number
+    categoryId?: number
     userId?: number
   }
 
@@ -43,10 +46,38 @@ declare namespace API {
     deployKey?: string
     deployedTime?: string
     priority?: number
+    categoryId?: number
+    categoryName?: string
+    categoryIds?: number[]
+    categoryNames?: string[]
     userId?: number
     createTime?: string
     updateTime?: string
     user?: UserVO
+  }
+
+  type AppCategoryVO = {
+    id?: number
+    name?: string
+    sortOrder?: number
+    createTime?: string
+  }
+
+  type AppCategoryAddRequest = {
+    name?: string
+    sortOrder?: number
+  }
+
+  type AppCategoryUpdateRequest = {
+    id?: number
+    name?: string
+    sortOrder?: number
+  }
+
+  type BaseResponseListAppCategoryVO = {
+    code?: number
+    data?: AppCategoryVO[]
+    message?: string
   }
 
   type BaseResponseAppVO = {
@@ -259,6 +290,17 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+  }
+
+  type UserProfileUpdateRequest = {
+    userName?: string
+    userAvatar?: string
+  }
+
+  type UserPasswordUpdateRequest = {
+    oldPassword?: string
+    newPassword?: string
+    checkPassword?: string
   }
 
   type UserVO = {

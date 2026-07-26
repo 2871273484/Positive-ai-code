@@ -10,28 +10,37 @@
         >
           Positive
         </a>
+        · 一句话创建网站
       </p>
     </div>
   </a-layout-footer>
 </template>
 
-<script setup lang="ts">
-// 无需额外的响应式数据
-</script>
+<script setup lang="ts"></script>
 
 <style scoped>
 .footer {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
+  background: transparent;
   text-align: center;
-  padding: 20px;
-  margin-top: 40px;
-  border-top: 1px solid rgba(102, 126, 234, 0.1);
+  padding: 12px 20px 28px;
+  margin-top: 0;
+  border-top: none;
 }
 
 .copyright {
   margin: 0;
-  color: #666;
-  font-size: 14px;
+  color: #94a3b8;
+  font-size: 13px;
+  font-family: 'Nunito Sans', 'PingFang SC', sans-serif;
+}
+
+.author-link {
+  color: #0f172a;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.author-link:hover {
+  text-decoration: underline;
 }
 </style>

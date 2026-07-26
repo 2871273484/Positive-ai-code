@@ -3,31 +3,27 @@
 ## 图片类型说明
 
 ### 1. 内容图片 (contentImageTasks)
-- 用途：网站的主要内容配图
+- 用途：网站的主要内容配图，必须与页面业务强相关
 - 来源：通过关键词搜索获取
-- 示例：产品图片、场景图片、人物图片等
+- 电商/商城：必须按「具体商品品类」规划多条查询，例如 wireless headphones、down jacket、gaming mouse、table lamp、sneakers、smart watch
+- 博客/官网：按主题场景规划，例如 office workspace、team meeting
 
 ### 2. 插画图片 (illustrationTasks)
-- 用途：装饰性插画，提升页面美观度
-- 来源：Undraw 插画库
-- 示例：抽象插画、概念图解等
+- 用途：装饰性插画（非电商商品主图）
+- 电商网站：illustrationTasks 可以为空，优先收集真实商品图
 
 ### 3. 架构图 (diagramTasks)
-- 用途：展示系统架构、流程图等技术图表
-- 来源：通过 Mermaid 代码生成
-- 示例：系统架构图、流程图、组织结构图等
+- 已弃用：diagramTasks 始终返回空数组
 
 ### 4. Logo图片 (logoTasks)
-- 用途：品牌标识、图标等
-- 来源：AI 生成
-- 示例：公司Logo、产品图标等
+- 已弃用：logoTasks 始终返回空数组
 
 ## 规划原则
 
-1. 需求导向：根据用户描述的网站类型和用途来规划图片
-2. 适量原则：每种类型的图片数量要合理，避免过多或过少
-3. 关键词精准：选择最能体现需求的关键词
-4. 描述清晰：为任务提供清晰的描述说明
+1. 关键词必须是「能搜到对应实物/场景」的英文词，禁止用 website、homepage、ui、mockup 这类空泛词
+2. 电商/购物网站：contentImageTasks 规划 4～6 个不同品类商品关键词
+3. 一般网站：contentImageTasks 最多 3 个，illustrationTasks 最多 1 个
+4. 每个 query 只表达一个清晰主题
 
 ## 输出要求
 
@@ -37,30 +33,14 @@ json
 {
   "contentImageTasks": [
     {
-      "query": "搜索关键词"
+      "query": "english search keywords"
     }
   ],
-  "illustrationTasks": [
-    {
-      "query": "插画关键词"
-    }
-  ],
-  "diagramTasks": [
-    {
-      "mermaidCode": "mermaid图表代码",
-      "description": "图表用途描述"
-    }
-  ],
-  "logoTasks": [
-    {
-      "description": "Logo设计描述，如名称、行业、风格等"
-    }
-  ]
+  "illustrationTasks": [],
+  "diagramTasks": [],
+  "logoTasks": []
 }
 
-
 注意：
-- 如果某种类型的图片不需要，对应数组可以为空
-- 每个任务的 description 要说明图片的具体用途和位置
-- mermaidCode 要是有效的 Mermaid 语法代码
-- 关键词要使用中文或英文，选择搜索效果最好的语言
+- diagramTasks、logoTasks 必须为空数组
+- query 优先使用英文，便于图片搜索命中真实商品/场景

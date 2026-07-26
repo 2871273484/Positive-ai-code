@@ -155,6 +155,35 @@ public class UserController {
     }
 
     /**
+     * 当前登录用户更新昵称与头像（头像为 URL）
+     */
+    @PostMapping("/update/my")
+    public BaseResponse<LoginUserVO> updateMyProfile(@RequestBody UserProfileUpdateRequest profileUpdateRequest,
+                                                     HttpServletRequest request) {
+        ThrowUtils.throwIf(profileUpdateRequest == null, ErrorCode.PARAMS_ERROR);
+        LoginUserVO loginUserVO = userService.updateMyProfile(
+                profileUpdateRequest.getUserName(),
+                profileUpdateRequest.getUserAvatar(),
+                request);
+        return ResultUtils.success(loginUserVO);
+    }
+
+    /**
+     * 当前登录用户修改密码
+     */
+    @PostMapping("/update/password")
+    public BaseResponse<Boolean> updateMyPassword(@RequestBody UserPasswordUpdateRequest passwordUpdateRequest,
+                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(passwordUpdateRequest == null, ErrorCode.PARAMS_ERROR);
+        boolean result = userService.updateMyPassword(
+                passwordUpdateRequest.getOldPassword(),
+                passwordUpdateRequest.getNewPassword(),
+                passwordUpdateRequest.getCheckPassword(),
+                request);
+        return ResultUtils.success(result);
+    }
+
+    /**
      * 分页获取用户封装列表（仅管理员）
      *
      * @param userQueryRequest 查询请求参数

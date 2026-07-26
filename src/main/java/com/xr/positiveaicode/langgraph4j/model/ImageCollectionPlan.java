@@ -24,7 +24,7 @@ public class ImageCollectionPlan implements Serializable {
     private List<DiagramTask> diagramTasks;
     
     /**
-     * Logo生成任务列表
+     * Logo 任务列表（已弃用，保留字段兼容旧计划；运行时注入固定品牌 Logo）
      */
     private List<LogoTask> logoTasks;
     
@@ -47,8 +47,7 @@ public class ImageCollectionPlan implements Serializable {
     public record DiagramTask(String mermaidCode, String description) implements Serializable {}
     
     /**
-     * Logo生成任务
-     * 对应 LogoGeneratorTool.generateLogos(String description)
+     * Logo 任务（已弃用：系统注入固定品牌 Logo，规划阶段应始终为空）
      */
     public record LogoTask(String description) implements Serializable {}
 }

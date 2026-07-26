@@ -1,8 +1,6 @@
 package com.xr.positiveaicode.langgraph4j.ai;
 
 import com.xr.positiveaicode.langgraph4j.tools.ImageSearchTool;
-import com.xr.positiveaicode.langgraph4j.tools.LogoGeneratorTool;
-import com.xr.positiveaicode.langgraph4j.tools.MermaidDiagramTool;
 import com.xr.positiveaicode.langgraph4j.tools.UndrawIllustrationTool;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
@@ -24,14 +22,9 @@ public class ImageCollectionServiceFactory {
     @Resource
     private UndrawIllustrationTool undrawIllustrationTool;
 
-    @Resource
-    private MermaidDiagramTool mermaidDiagramTool;
-
-    @Resource
-    private LogoGeneratorTool logoGeneratorTool;
-
     /**
      * 创建图片收集 AI 服务
+     * Logo 使用固定品牌图；不再生成架构图
      */
     @Bean
     public ImageCollectionService createImageCollectionService() {
@@ -39,9 +32,7 @@ public class ImageCollectionServiceFactory {
                 .chatModel(chatModel)
                 .tools(
                         imageSearchTool,
-                        undrawIllustrationTool,
-                        mermaidDiagramTool,
-                        logoGeneratorTool
+                        undrawIllustrationTool
                 )
                 .build();
     }

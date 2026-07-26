@@ -49,8 +49,9 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .apiKey(builder.apiKey)
                 .organizationId(builder.organizationId)
                 .projectId(builder.projectId)
-                .connectTimeout(getOrDefault(builder.timeout, ofSeconds(15)))
-                .readTimeout(getOrDefault(builder.timeout, ofSeconds(60)))
+                // 连接超时单独设短，避免外网不通时长时间卡住；读超时保留给流式生成
+                .connectTimeout(getOrDefault(builder.connectTimeout, ofSeconds(10)))
+                .readTimeout(getOrDefault(builder.timeout, ofSeconds(120)))
                 .logRequests(getOrDefault(builder.logRequests, false))
                 .logResponses(getOrDefault(builder.logResponses, false))
                 .userAgent(DEFAULT_USER_AGENT)
@@ -260,6 +261,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Map<String, String> metadata;
         private String serviceTier;
         private Duration timeout;
+        private Duration connectTimeout;
         private Boolean logRequests;
         private Boolean logResponses;
         private Map<String, String> customHeaders;
@@ -402,6 +404,11 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
         public OpenAiStreamingChatModelBuilder timeout(Duration timeout) {
             this.timeout = timeout;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder connectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
             return this;
         }
 

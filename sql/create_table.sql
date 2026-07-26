@@ -30,6 +30,33 @@ create table if not exists user
     INDEX idx_userName (userName)
 ) comment '用户' collate = utf8mb4_unicode_ci;
 
+-- 案例广场分类标签（后台可管理）
+create table if not exists app_category
+(
+    id         bigint auto_increment comment 'id' primary key,
+    name       varchar(64)                        not null comment '分类名称',
+    sortOrder  int      default 0                 not null comment '排序，越小越靠前',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    updateTime datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDelete   tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uk_category_name (name),
+    INDEX idx_sortOrder (sortOrder)
+) comment '应用分类标签' collate = utf8mb4_unicode_ci;
+
+-- 默认分类
+insert into app_category (name, sortOrder)
+select * from (
+    select '工具' as name, 10 as sortOrder union all
+    select '网站', 20 union all
+    select '数据分析', 30 union all
+    select '活动页面', 40 union all
+    select '管理平台', 50 union all
+    select '用户应用', 60 union all
+    select '个人管理', 70 union all
+    select '游戏', 80
+) as seed
+where not exists (select 1 from app_category limit 1);
+
 -- 应用表
 create table app
 (
@@ -41,6 +68,7 @@ create table app
     deployKey    varchar(64)                        null comment '部署标识',
     deployedTime datetime                           null comment '部署时间',
     priority     int      default 0                 not null comment '优先级',
+    categoryId   bigint                             null comment '案例广场分类 id',
     userId       bigint                             not null comment '创建用户id',
     editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
     createTime   datetime default CURRENT_TIMESTAMP not null comment '创建时间',
@@ -48,8 +76,13 @@ create table app
     isDelete     tinyint  default 0                 not null comment '是否删除',
     UNIQUE KEY uk_deployKey (deployKey), -- 确保部署标识唯一
     INDEX idx_appName (appName),         -- 提升基于应用名称的查询性能
-    INDEX idx_userId (userId)            -- 提升基于用户 ID 的查询性能
+    INDEX idx_userId (userId),           -- 提升基于用户 ID 的查询性能
+    INDEX idx_categoryId (categoryId)
 ) comment '应用' collate = utf8mb4_unicode_ci;
+
+-- 已有库升级（可重复执行时忽略报错）
+-- ALTER TABLE app ADD COLUMN categoryId bigint null comment '案例广场分类 id' after priority;
+-- ALTER TABLE app ADD INDEX idx_categoryId (categoryId);
 
 -- 对话历史表
 create table chat_history

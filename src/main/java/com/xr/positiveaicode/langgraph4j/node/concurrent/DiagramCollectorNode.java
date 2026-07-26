@@ -1,10 +1,7 @@
 package com.xr.positiveaicode.langgraph4j.node.concurrent;
 
-import com.xr.positiveaicode.langgraph4j.model.ImageCollectionPlan;
 import com.xr.positiveaicode.langgraph4j.model.ImageResource;
 import com.xr.positiveaicode.langgraph4j.state.WorkflowContext;
-import com.xr.positiveaicode.langgraph4j.tools.MermaidDiagramTool;
-import com.xr.positiveaicode.utils.SpringContextUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
@@ -14,6 +11,9 @@ import java.util.List;
 
 import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
+/**
+ * 架构图收集节点（已弃用：不再生成系统架构图）
+ */
 @Slf4j
 public class DiagramCollectorNode {
 
@@ -21,23 +21,7 @@ public class DiagramCollectorNode {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
             List<ImageResource> diagrams = new ArrayList<>();
-            try {
-                ImageCollectionPlan plan = context.getImageCollectionPlan();
-                if (plan != null && plan.getDiagramTasks() != null) {
-                    MermaidDiagramTool diagramTool = SpringContextUtil.getBean(MermaidDiagramTool.class);
-                    log.info("开始并发生成架构图，任务数: {}", plan.getDiagramTasks().size());
-                    for (ImageCollectionPlan.DiagramTask task : plan.getDiagramTasks()) {
-                        List<ImageResource> images = diagramTool.generateMermaidDiagram(
-                                task.mermaidCode(), task.description());
-                        if (images != null) {
-                            diagrams.addAll(images);
-                        }
-                    }
-                    log.info("架构图生成完成，共生成 {} 张图片", diagrams.size());
-                }
-            } catch (Exception e) {
-                log.error("架构图生成失败: {}", e.getMessage(), e);
-            }
+            log.info("跳过架构图生成（产品不再展示系统架构图）");
             context.setDiagrams(diagrams);
             context.setCurrentStep("架构图生成");
             return WorkflowContext.saveContext(context);

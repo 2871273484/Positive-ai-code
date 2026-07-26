@@ -1,11 +1,16 @@
 package com.xr.positiveaicode.langgraph4j;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.xr.positiveaicode.ai.monitor.MonitorContext;
+import com.xr.positiveaicode.ai.monitor.MonitorContextHolder;
+import com.xr.positiveaicode.core.AiCodeGeneratorFacade;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
 import com.xr.positiveaicode.langgraph4j.node.*;
 import com.xr.positiveaicode.langgraph4j.state.WorkflowContext;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
+import com.xr.positiveaicode.utils.SpringContextUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphRepresentation;
@@ -13,8 +18,11 @@ import org.bsc.langgraph4j.GraphStateException;
 import org.bsc.langgraph4j.NodeOutput;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
 import java.util.Map;
@@ -24,6 +32,7 @@ import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
 
 @Slf4j
+@Component
 public class CodeGenWorkflow {
 
     /**
@@ -32,48 +41,145 @@ public class CodeGenWorkflow {
     public CompiledGraph<MessagesState<String>> createWorkflow() {
         try {
             return new MessagesStateGraph<String>()
-                    // 添加节点 - 使用完整实现的节点
                     .addNode("image_collector", ImageCollectorNode.create())
                     .addNode("prompt_enhancer", PromptEnhancerNode.create())
                     .addNode("router", RouterNode.create())
                     .addNode("code_generator", CodeGeneratorNode.create())
                     .addNode("project_builder", ProjectBuilderNode.create())
 
-                    // 添加边
                     .addEdge(START, "image_collector")
                     .addEdge("image_collector", "prompt_enhancer")
                     .addEdge("prompt_enhancer", "router")
                     .addEdge("router", "code_generator")
-                   // 使用条件边：根据代码生成类型决定是否需要构建
                     .addConditionalEdges("code_generator",
                             edge_async(this::routeBuildOrSkip),
                             Map.of(
-                                    "build", "project_builder",  // 需要构建的情况
-                                    "skip_build", END             // 跳过构建直接结束
+                                    "build", "project_builder",
+                                    "skip_build", END
                             ))
                     .addEdge("project_builder", END)
-
-                    // 编译工作流
                     .compile();
         } catch (GraphStateException e) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "工作流创建失败");
         }
     }
-//    /**
-//     * 质检检查后路由函数
-//     */
-//    private String routeAfterQualityCheck(MessagesState<String> state) {
-//        WorkflowContext context = WorkflowContext.getContext(state);
-//        QualityResult qualityResult = context.getQualityResult();
-//        // 如果质检失败，重新生成代码
-//        if (qualityResult == null || !qualityResult.getIsValid()) {
-//            log.error("代码质检失败，需要重新生成代码");
-//            return "fail";
-//        }
-//        // 质检通过，使用原有的构建路由逻辑
-//        log.info("代码质检通过，继续后续流程");
-//        return routeBuildOrSkip(state);
-//    }
+
+    /**
+     * 准备阶段工作流：图片收集 → 提示词增强 → 路由（不含代码生成，避免 blockLast 卡死流式输出）
+     */
+    public CompiledGraph<MessagesState<String>> createPreparationWorkflow() {
+        try {
+            return new MessagesStateGraph<String>()
+                    .addNode("image_collector", ImageCollectorNode.create())
+                    .addNode("prompt_enhancer", PromptEnhancerNode.create())
+                    .addNode("router", RouterNode.create())
+                    .addEdge(START, "image_collector")
+                    .addEdge("image_collector", "prompt_enhancer")
+                    .addEdge("prompt_enhancer", "router")
+                    .addEdge("router", END)
+                    .compile();
+        } catch (GraphStateException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "准备工作流创建失败");
+        }
+    }
+
+    /**
+     * 进度消息前缀（前端识别用，不写入最终代码历史）
+     */
+    public static final String PROGRESS_PREFIX = "[[PROGRESS]]";
+
+    /**
+     * 生产路径：先推送进度，再跑准备节点，最后透传 Facade 代码流。
+     * 一开始就有 SSE 输出，避免前端长时间无响应。
+     */
+    public Flux<String> executeForApp(Long appId, String originalPrompt, CodeGenTypeEnum generationType) {
+        MonitorContext monitorContext = MonitorContextHolder.getContext();
+        Mono<WorkflowContext> preparation = Mono.fromCallable(() -> {
+                    if (monitorContext != null) {
+                        MonitorContextHolder.setContext(monitorContext);
+                    }
+                    return runPreparation(appId, originalPrompt, generationType);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                // 准备阶段整体封顶，外网超时也不拖住生成
+                .timeout(java.time.Duration.ofSeconds(18))
+                .onErrorResume(error -> {
+                    log.warn("准备工作流超时/失败，跳过素材直接生成, appId={}: {}", appId, error.getMessage());
+                    return Mono.just(WorkflowContext.builder()
+                            .appId(appId)
+                            .originalPrompt(originalPrompt)
+                            .enhancedPrompt(originalPrompt + "\n\n## 生成约束\n- 不要在页面中展示系统架构图、流程图、站点结构图。\n")
+                            .generationType(generationType)
+                            .currentStep("图片收集跳过")
+                            .build());
+                })
+                .cache();
+
+        // 准备阶段心跳，让用户知道仍在处理
+        Flux<String> preparationHeartbeat = Flux.interval(java.time.Duration.ofSeconds(5))
+                .map(i -> PROGRESS_PREFIX + "仍在收集素材与准备提示词，已等待 " + ((i + 1) * 5) + " 秒…")
+                .takeUntilOther(preparation);
+
+        Flux<String> codePhase = preparation.flatMapMany(prepared -> {
+            String prompt = StrUtil.blankToDefault(prepared.getEnhancedPrompt(), originalPrompt);
+            CodeGenTypeEnum type = prepared.getGenerationType() != null
+                    ? prepared.getGenerationType()
+                    : generationType;
+            log.info("准备工作流完成，开始流式代码生成, appId={}, type={}, promptLength={}",
+                    appId, type, prompt.length());
+            AiCodeGeneratorFacade facade = SpringContextUtil.getBean(AiCodeGeneratorFacade.class);
+            Flux<String> codeFlux = facade.generateAndSaveCodeStream(prompt, type, appId)
+                    .publish()
+                    .refCount(1);
+            // 出码间隙心跳（不写入代码正文，前端靠 PROGRESS 前缀识别）
+            Flux<String> codeHeartbeat = Flux.interval(java.time.Duration.ofSeconds(8))
+                    .map(i -> PROGRESS_PREFIX + "模型仍在生成，请稍候（已等待 "
+                            + ((i + 1) * 8) + " 秒）…")
+                    .takeUntilOther(codeFlux.ignoreElements());
+            return Flux.concat(
+                    Flux.just(PROGRESS_PREFIX + "正在连接 AI 模型生成代码…"),
+                    Flux.merge(codeFlux, codeHeartbeat)
+            );
+        });
+
+        return Flux.concat(
+                        Flux.just(PROGRESS_PREFIX + "开始准备：收集图片素材（网络慢时会自动跳过）…"),
+                        Flux.merge(preparationHeartbeat, preparation.thenMany(Flux.<String>empty())),
+                        Flux.just(PROGRESS_PREFIX + "素材准备完成，开始生成网站代码…"),
+                        codePhase
+                )
+                .doOnError(e -> log.error("应用工作流执行失败, appId={}: {}", appId, e.getMessage(), e))
+                .doFinally(signal -> MonitorContextHolder.clearContext());
+    }
+
+    /**
+     * 执行准备阶段并返回最终上下文
+     */
+    private WorkflowContext runPreparation(Long appId, String originalPrompt, CodeGenTypeEnum generationType) {
+        CompiledGraph<MessagesState<String>> workflow = createPreparationWorkflow();
+        WorkflowContext initialContext = WorkflowContext.builder()
+                .originalPrompt(originalPrompt)
+                .appId(appId)
+                .generationType(generationType)
+                .currentStep("初始化")
+                .build();
+        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
+        log.info("应用准备工作流图:\n{}", graph.content());
+        log.info("开始执行准备工作流, appId={}, type={}", appId, generationType);
+
+        WorkflowContext finalContext = initialContext;
+        int stepCounter = 1;
+        for (NodeOutput<MessagesState<String>> step : workflow.stream(
+                Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
+            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
+            if (currentContext != null) {
+                finalContext = currentContext;
+                log.info("--- 准备工作流第 {} 步完成: {} ---", stepCounter, currentContext.getCurrentStep());
+            }
+            stepCounter++;
+        }
+        return finalContext;
+    }
 
     /**
      * 执行工作流
@@ -81,7 +187,6 @@ public class CodeGenWorkflow {
     public WorkflowContext executeWorkflow(String originalPrompt) {
         CompiledGraph<MessagesState<String>> workflow = createWorkflow();
 
-        // 初始化 WorkflowContext
         WorkflowContext initialContext = WorkflowContext.builder()
                 .originalPrompt(originalPrompt)
                 .currentStep("初始化")
@@ -97,7 +202,6 @@ public class CodeGenWorkflow {
         for (NodeOutput<MessagesState<String>> step : workflow.stream(
                 Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
             log.info("--- 第 {} 步完成 ---", stepCounter);
-            // 显示当前状态
             WorkflowContext currentContext = WorkflowContext.getContext(step.state());
             if (currentContext != null) {
                 finalContext = currentContext;
@@ -115,13 +219,12 @@ public class CodeGenWorkflow {
     private String routeBuildOrSkip(MessagesState<String> state) {
         WorkflowContext context = WorkflowContext.getContext(state);
         CodeGenTypeEnum generationType = context.getGenerationType();
-        // HTML 和 MULTI_FILE 类型不需要构建，直接结束
         if (generationType == CodeGenTypeEnum.HTML || generationType == CodeGenTypeEnum.MULTI_FILE) {
             return "skip_build";
         }
-        // VUE_PROJECT 需要构建
         return "build";
     }
+
     /**
      * 执行工作流（Flux 流式输出版本）
      */
@@ -172,9 +275,6 @@ public class CodeGenWorkflow {
         });
     }
 
-    /**
-     * 格式化 SSE 事件的辅助方法
-     */
     private String formatSseEvent(String eventType, Object data) {
         try {
             String jsonData = JSONUtil.toJsonStr(data);
@@ -184,6 +284,7 @@ public class CodeGenWorkflow {
             return "event: error\ndata: {\"error\":\"格式化失败\"}\n\n";
         }
     }
+
     /**
      * 执行工作流（SSE 流式输出版本）
      */
@@ -234,9 +335,6 @@ public class CodeGenWorkflow {
         return emitter;
     }
 
-    /**
-     * 发送 SSE 事件的辅助方法
-     */
     private void sendSseEvent(SseEmitter emitter, String eventType, Object data) {
         try {
             emitter.send(SseEmitter.event()
@@ -246,6 +344,4 @@ public class CodeGenWorkflow {
             log.error("发送 SSE 事件失败: {}", e.getMessage(), e);
         }
     }
-
-
 }

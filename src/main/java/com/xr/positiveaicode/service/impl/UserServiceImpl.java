@@ -180,7 +180,74 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
                 .orderBy(sortField, "ascend".equals(sortOrder));
     }
 
+    @Override
+    public LoginUserVO updateMyProfile(String userName, String userAvatar, HttpServletRequest request) {
+        User loginUser = getLoginUser(request);
+        if (StrUtil.isBlank(userName)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "昵称不能为空");
+        }
+        String trimmedName = userName.trim();
+        if (trimmedName.length() > 20) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "昵称不能超过 20 个字");
+        }
+        User update = new User();
+        update.setId(loginUser.getId());
+        update.setUserName(trimmedName);
+        if (userAvatar != null) {
+            String avatar = userAvatar.trim();
+            if (StrUtil.isNotBlank(avatar)) {
+                if (avatar.length() > 512) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "头像链接过长");
+                }
+                if (!avatar.startsWith("http://") && !avatar.startsWith("https://")) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "头像须为 http/https 链接");
+                }
+                update.setUserAvatar(avatar);
+            } else {
+                // 传空字符串则清空头像
+                update.setUserAvatar("");
+            }
+        }
+        boolean result = this.updateById(update);
+        if (!result) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "更新资料失败");
+        }
+        User latest = this.getById(loginUser.getId());
+        request.getSession().setAttribute(USER_LOGIN_STATE, latest);
+        return getLoginUserVO(latest);
+    }
 
+    @Override
+    public boolean updateMyPassword(String oldPassword, String newPassword, String checkPassword,
+                                    HttpServletRequest request) {
+        if (StrUtil.hasBlank(oldPassword, newPassword, checkPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数为空");
+        }
+        if (oldPassword.length() < 8 || newPassword.length() < 8 || checkPassword.length() < 8) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码长度不能小于 8 位");
+        }
+        if (!newPassword.equals(checkPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的新密码不一致");
+        }
+        if (oldPassword.equals(newPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "新密码不能与原密码相同");
+        }
 
+        User loginUser = getLoginUser(request);
+        String encryptOld = getEncryptPassword(oldPassword);
+        if (!encryptOld.equals(loginUser.getUserPassword())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "原密码错误");
+        }
 
+        User update = new User();
+        update.setId(loginUser.getId());
+        update.setUserPassword(getEncryptPassword(newPassword));
+        boolean result = this.updateById(update);
+        if (!result) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "修改密码失败");
+        }
+        User latest = this.getById(loginUser.getId());
+        request.getSession().setAttribute(USER_LOGIN_STATE, latest);
+        return true;
+    }
 }

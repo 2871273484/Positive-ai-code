@@ -1,14 +1,12 @@
 package com.xr.positiveaicode.core.handler;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.xr.positiveaicode.ai.model.message.*;
 import com.xr.positiveaicode.ai.tools.BaseTool;
 import com.xr.positiveaicode.ai.tools.ToolManager;
-import com.xr.positiveaicode.constant.AppConstant;
-import com.xr.positiveaicode.core.builder.VueProjectBuilder;
+import com.xr.positiveaicode.langgraph4j.CodeGenWorkflow;
 import com.xr.positiveaicode.model.entity.User;
 import com.xr.positiveaicode.model.enums.ChatHistoryMessageTypeEnum;
 import com.xr.positiveaicode.service.ChatHistoryService;
@@ -50,14 +48,18 @@ public class JsonMessageStreamHandler {
         Set<String> seenToolIds = new HashSet<>();
         return originFlux
                 .map(chunk -> {
-                    // 解析每个 JSON 消息块
+                    // 进度消息直接透传，避免按 JSON 解析失败
+                    if (chunk != null && chunk.startsWith(CodeGenWorkflow.PROGRESS_PREFIX)) {
+                        return chunk;
+                    }
                     return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
                 })
-                .filter(StrUtil::isNotEmpty) // 过滤空字串
+                .filter(StrUtil::isNotEmpty)
                 .doOnComplete(() -> {
-                    // 流式响应完成后，添加 AI 消息到对话历史
                     String aiResponse = chatHistoryStringBuilder.toString();
-                    chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    if (StrUtil.isNotBlank(aiResponse)) {
+                        chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                    }
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息

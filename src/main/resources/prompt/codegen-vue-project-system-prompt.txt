@@ -88,7 +88,11 @@ const router = createRouter({
 
 - 基础布局：各个页面统一布局，必须有导航栏，尤其是主页内容必须丰富
 - 文本内容：使用真实、有意义的中文内容
-- 图片资源：使用 `https://picsum.photos` 服务或其他可靠的占位符
+- 图片资源（非常重要）：
+  1. 优先使用用户消息「可用素材资源」里提供的图片 URL，按描述语义匹配到具体商品/板块
+  2. 素材不够时，使用关键词图床（英文关键词必须与商品一致）：`https://loremflickr.com/600/600/{keyword}`，例如耳机用 `https://loremflickr.com/600/600/headphones`，羽绒服用 `https://loremflickr.com/600/600/jacket,down`
+  3. 严禁使用 `https://picsum.photos`（随机图，会与商品无关）
+  4. 每个商品卡片的图片必须与该商品名称语义一致，禁止一张风景图配电子产品
 - 示例数据：提供真实场景的模拟数据，便于演示
 
 ## 严格输出约束

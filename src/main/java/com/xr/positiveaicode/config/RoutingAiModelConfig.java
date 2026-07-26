@@ -1,5 +1,6 @@
 package com.xr.positiveaicode.config;
 
+import com.xr.positiveaicode.ai.http.DeepSeekHttpClientFactory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.Data;
@@ -7,6 +8,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
+
+import java.time.Duration;
 
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.routing-chat-model")
@@ -27,9 +30,6 @@ public class RoutingAiModelConfig {
 
     private Boolean logResponses = false;
 
-    /**
-     * 创建用于路由判断的ChatModel
-     */
     @Bean
     @Scope("prototype")
     public ChatModel routingChatModelPrototype() {
@@ -38,7 +38,10 @@ public class RoutingAiModelConfig {
                 .modelName(modelName)
                 .baseUrl(baseUrl)
                 .maxTokens(maxTokens)
-                .temperature(temperature)
+                .temperature(temperature != null ? temperature : 0.0)
+                .timeout(Duration.ofSeconds(30))
+                .httpClientBuilder(DeepSeekHttpClientFactory.thinkingDisabledBuilder(
+                        Duration.ofSeconds(10), Duration.ofSeconds(30)))
                 .logRequests(logRequests)
                 .logResponses(logResponses)
                 .build();

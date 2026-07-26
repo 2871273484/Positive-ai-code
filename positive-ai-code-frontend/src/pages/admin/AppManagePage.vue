@@ -55,6 +55,36 @@
           <a-tag v-if="record.priority === 99" color="gold">精选</a-tag>
           <span v-else>{{ record.priority || 0 }}</span>
         </template>
+        <template v-else-if="column.dataIndex === 'categoryIds'">
+          <div class="tag-cell">
+            <template v-if="editingTagAppId === record.id">
+              <a-select
+                class="tag-select"
+                mode="multiple"
+                allow-clear
+                placeholder="选标签，最多3个"
+                :value="draftTagIds"
+                :options="categoryOptions"
+                :max-tag-count="3"
+                style="min-width: 180px; flex: 1"
+                @change="(vals: unknown) => onDraftTagChange(vals as number[])"
+              />
+              <a-button type="link" size="small" @click="saveTags(record)">保存</a-button>
+              <a-button type="link" size="small" @click="cancelEditTags">取消</a-button>
+            </template>
+            <template v-else>
+              <div class="tag-view">
+                <a-tag v-for="name in record.categoryNames || []" :key="name" color="blue">
+                  {{ name }}
+                </a-tag>
+                <span v-if="!record.categoryNames?.length" class="text-gray">未分类</span>
+              </div>
+              <a-button type="link" size="small" class="tag-edit-btn" @click="startEditTags(record)">
+                编辑
+              </a-button>
+            </template>
+          </div>
+        </template>
         <template v-else-if="column.dataIndex === 'deployedTime'">
           <span v-if="record.deployedTime">
             {{ formatTime(record.deployedTime) }}
@@ -93,11 +123,16 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { listAppVoByPageByAdmin, deleteAppByAdmin, updateAppByAdmin } from '@/api/appController'
+import { listAppCategories } from '@/api/appCategoryController'
 import { CODE_GEN_TYPE_OPTIONS, formatCodeGenType } from '@/utils/codeGenTypes'
 import { formatTime } from '@/utils/time'
 import UserInfo from '@/components/UserInfo.vue'
 
 const router = useRouter()
+const categoryOptions = ref<{ label: string; value: number }[]>([])
+/** 正在编辑标签的应用 id；未编辑时只展示标签，不显示可删除的 X */
+const editingTagAppId = ref<number | undefined>()
+const draftTagIds = ref<number[]>([])
 
 const columns = [
   {
@@ -130,6 +165,11 @@ const columns = [
     title: '优先级',
     dataIndex: 'priority',
     width: 80,
+  },
+  {
+    title: '广场分类',
+    dataIndex: 'categoryIds',
+    width: 280,
   },
   {
     title: '部署时间',
@@ -182,8 +222,60 @@ const fetchData = async () => {
   }
 }
 
+const loadCategories = async () => {
+  try {
+    const res = await listAppCategories()
+    if (res.data.code === 0 && res.data.data) {
+      categoryOptions.value = res.data.data
+        .filter((c) => c.id != null && c.name)
+        .map((c) => ({ label: c.name!, value: c.id! }))
+    }
+  } catch (error) {
+    console.error('加载分类失败：', error)
+  }
+}
+
+const startEditTags = (app: API.AppVO) => {
+  editingTagAppId.value = app.id
+  draftTagIds.value = [...(app.categoryIds || [])].slice(0, 3)
+}
+
+const cancelEditTags = () => {
+  editingTagAppId.value = undefined
+  draftTagIds.value = []
+}
+
+const onDraftTagChange = (values: number[]) => {
+  if ((values || []).length > 3) {
+    message.warning('最多选择 3 个标签')
+  }
+  draftTagIds.value = (values || []).slice(0, 3)
+}
+
+const saveTags = async (app: API.AppVO) => {
+  if (!app.id) return
+  const next = draftTagIds.value.slice(0, 3)
+  try {
+    const res = await updateAppByAdmin({
+      id: app.id,
+      categoryIds: next,
+    })
+    if (res.data.code === 0) {
+      message.success('标签已更新')
+      cancelEditTags()
+      fetchData()
+    } else {
+      message.error(res.data.message || '更新失败')
+    }
+  } catch (error) {
+    console.error(error)
+    message.error('更新失败')
+  }
+}
+
 // 页面加载时请求一次
 onMounted(() => {
+  void loadCategories()
   fetchData()
 })
 
@@ -230,7 +322,9 @@ const toggleFeatured = async (app: API.AppVO) => {
     })
 
     if (res.data.code === 0) {
-      message.success(newPriority === 99 ? '已设为精选' : '已取消精选')
+      message.success(
+        newPriority === 99 ? '已设为精选，案例广场将立即展示' : '已取消精选，已从案例广场移除',
+      )
       // 刷新数据
       fetchData()
     } else {
@@ -305,5 +399,29 @@ const deleteApp = async (id: number | undefined) => {
 
 :deep(.ant-table-tbody > tr > td) {
   vertical-align: middle;
+}
+
+.tag-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tag-view {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-edit-btn {
+  flex-shrink: 0;
+  padding-inline: 4px !important;
+}
+
+.tag-select :deep(.ant-select-selector) {
+  border-radius: 10px !important;
 }
 </style>

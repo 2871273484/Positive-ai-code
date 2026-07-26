@@ -46,6 +46,11 @@ public class AppQueryRequest extends PageRequest implements Serializable {
     private Integer priority;
 
     /**
+     * 案例广场分类 id
+     */
+    private Long categoryId;
+
+    /**
      * 创建用户id
      */
     private Long userId;

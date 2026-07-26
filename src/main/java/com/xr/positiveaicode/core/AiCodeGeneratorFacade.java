@@ -12,6 +12,7 @@ import com.xr.positiveaicode.constant.AppConstant;
 import com.xr.positiveaicode.core.builder.VueProjectBuilder;
 import com.xr.positiveaicode.core.parser.CodeParserExecutor;
 import com.xr.positiveaicode.core.saver.CodeFileSaverExecutor;
+import com.xr.positiveaicode.event.AppCodeGeneratedEvent;
 import com.xr.positiveaicode.exception.BusinessException;
 import com.xr.positiveaicode.exception.ErrorCode;
 import com.xr.positiveaicode.model.enums.CodeGenTypeEnum;
@@ -20,11 +21,15 @@ import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AI 代码生成外观类，组合生成和保存功能
@@ -43,6 +48,8 @@ public class AiCodeGeneratorFacade {
     @Resource
     private VueProjectBuilder vueProjectBuilder;
 
+    @Resource
+    private ApplicationEventPublisher eventPublisher;
 
     private Flux<String> generateAndSaveMultiFileCodeStream(String userMessage,Long appId) {
         Flux<String> stringFlux = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
@@ -90,30 +97,50 @@ public class AiCodeGeneratorFacade {
     }
 
     /**
-     * 通用流式代码处理方法
-     *
-     * @param codeStream  代码流
-     * @param codeGenType 代码生成类型
-     * @return 流式响应
+     * 通用流式代码处理方法。
+     * 对「长时间无新 token」做空闲超时，避免前端一直转圈；超时仍尽量保存已生成内容。
      */
-    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType,Long appId) {
+    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType, Long appId) {
         StringBuilder codeBuilder = new StringBuilder();
-        return codeStream.doOnNext(chunk -> {
-            // 实时收集代码片段
-            codeBuilder.append(chunk);
-        }).doOnComplete(() -> {
-            // 流式返回完成后保存代码
+        AtomicBoolean saved = new AtomicBoolean(false);
+        Runnable saveOnce = () -> {
+            if (!saved.compareAndSet(false, true)) {
+                return;
+            }
+            String completeCode = codeBuilder.toString();
+            if (completeCode.isBlank()) {
+                return;
+            }
             try {
-                String completeCode = codeBuilder.toString();
-                // 使用执行器解析代码
                 Object parsedResult = CodeParserExecutor.executeParser(completeCode, codeGenType);
-                // 使用执行器保存代码
-                File savedDir = CodeFileSaverExecutor.executeSaver(parsedResult, codeGenType,appId);
-                log.info("保存成功，路径为：" + savedDir.getAbsolutePath());
+                File savedDir = CodeFileSaverExecutor.executeSaver(parsedResult, codeGenType, appId);
+                log.info("保存成功，路径为：{}", savedDir.getAbsolutePath());
+                eventPublisher.publishEvent(new AppCodeGeneratedEvent(this, appId));
             } catch (Exception e) {
                 log.error("保存失败: {}", e.getMessage());
             }
-        });
+        };
+        // 35s 无新片段则判定卡住（每次收到 token 会重置计时）
+        return codeStream
+                .doOnNext(codeBuilder::append)
+                .timeout(Duration.ofSeconds(35))
+                .onErrorResume(error -> {
+                    Throwable root = error;
+                    while (root.getCause() != null && root != root.getCause()) {
+                        root = root.getCause();
+                    }
+                    boolean idleTimeout = error instanceof TimeoutException
+                            || root instanceof TimeoutException
+                            || (error.getMessage() != null && error.getMessage().contains("Did not observe any item"));
+                    if (!idleTimeout) {
+                        return Flux.error(error);
+                    }
+                    log.warn("AI 流式空闲超时，结束并保存已生成内容, appId={}, chars={}", appId, codeBuilder.length());
+                    saveOnce.run();
+                    return Flux.just("\n\n> ⚠️ 模型长时间无响应，已停止。已保存已生成部分，请重试或继续说明要改哪里。\n");
+                })
+                .doOnComplete(saveOnce)
+                .doOnCancel(saveOnce);
     }
     /**
      * 统一入口：根据类型生成并保存代码
@@ -200,6 +227,7 @@ public class AiCodeGeneratorFacade {
                         // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
                         vueProjectBuilder.buildProject(projectPath);
+                        eventPublisher.publishEvent(new AppCodeGeneratedEvent(this, appId));
                         sink.complete();
                     })
                     .onError((Throwable error) -> {
