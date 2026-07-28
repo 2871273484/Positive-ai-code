@@ -59,12 +59,12 @@
       <div class="plaza-hover">
         <button type="button" class="hover-btn" @click.stop="handleViewChat">查看对话</button>
         <button
-          v-if="app.initPrompt"
+          v-if="app.deployKey"
           type="button"
           class="hover-btn ghost"
-          @click.stop="handleRemix"
+          @click.stop="handleViewWork"
         >
-          做同款
+          查看部署
         </button>
       </div>
     </div>
@@ -118,7 +118,6 @@ interface Props {
 interface Emits {
   (e: 'view-chat', appId: string | number | undefined): void
   (e: 'view-work', app: API.AppVO): void
-  (e: 'remix', prompt: string): void
   (e: 'delete', app: API.AppVO): void
 }
 
@@ -179,10 +178,6 @@ const deriveShortName = (prompt: string) => {
 
 const handleViewChat = () => emit('view-chat', props.app.id)
 const handleViewWork = () => emit('view-work', props.app)
-const handleRemix = () => {
-  const prompt = props.app.initPrompt?.trim()
-  if (prompt) emit('remix', prompt)
-}
 const handleDelete = () => emit('delete', props.app)
 </script>
 

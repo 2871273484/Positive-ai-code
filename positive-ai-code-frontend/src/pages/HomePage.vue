@@ -144,12 +144,6 @@ const setPrompt = (prompt: string) => {
   userPrompt.value = prompt
 }
 
-/** 精选案例「做同款」：回填主页输入框，与主页生成流程一致 */
-const remixFromFeatured = (prompt: string) => {
-  userPrompt.value = prompt
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-
 const createApp = async () => {
   // 未输入时，用当前轮播占位文案直接生成
   const prompt =
@@ -315,6 +309,8 @@ const viewPlazaChat = (appId: string | number | undefined) => {
 const viewWork = (app: API.AppVO) => {
   if (app.deployKey) {
     window.open(getDeployUrl(app.deployKey), '_blank')
+  } else {
+    message.warning('该应用尚未部署')
   }
 }
 
@@ -586,7 +582,6 @@ onUnmounted(() => {
             :featured="true"
             @view-chat="viewPlazaChat"
             @view-work="viewWork"
-            @remix="remixFromFeatured"
           />
         </div>
         <div v-else-if="plazaLoading" class="empty-hint">加载中…</div>

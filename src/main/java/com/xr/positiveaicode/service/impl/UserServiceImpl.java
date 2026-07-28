@@ -130,6 +130,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
     }
 
     @Override
+    public User getLoginUserPermitNull(HttpServletRequest request) {
+        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        User currentUser = (User) userObj;
+        if (currentUser == null || currentUser.getId() == null) {
+            return null;
+        }
+        return this.getById(currentUser.getId());
+    }
+
+    @Override
     public boolean userLogout(HttpServletRequest request) {
         // 先判断是否已登录
         Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
