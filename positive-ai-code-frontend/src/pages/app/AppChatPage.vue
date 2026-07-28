@@ -148,7 +148,7 @@
                   :rows="3"
                   :maxlength="1000"
                   :disabled="isGenerating || !isOwner"
-                  @keydown.enter.prevent="sendMessage"
+                  @keydown.enter.exact.prevent="sendMessage"
                 />
               </a-tooltip>
               <a-textarea
@@ -159,10 +159,9 @@
                 :rows="3"
                 :maxlength="1000"
                 :disabled="isGenerating"
-                @keydown.enter.prevent="sendMessage"
+                @keydown.enter.exact.prevent="sendMessage"
               />
               <div class="prompt-toolbar">
-                <span class="hint-chip">Enter 发送</span>
                 <button
                   type="button"
                   class="submit-btn"
@@ -1383,21 +1382,9 @@ onUnmounted(() => {
 .prompt-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding-top: 4px;
-}
-
-.hint-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius-pill);
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  background: rgba(241, 245, 249, 0.9);
 }
 
 .submit-btn {

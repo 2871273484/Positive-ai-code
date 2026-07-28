@@ -8,6 +8,8 @@
           alt="Positive"
         />
         <span class="site-title">Positive</span>
+        <span class="brand-sep">·</span>
+        <span class="brand-slogan">一句话呈所想</span>
       </RouterLink>
 
       <nav class="nav-links">
@@ -46,7 +48,7 @@
             </template>
           </a-dropdown>
         </template>
-        <RouterLink v-else to="/user/login" class="login-btn">登录</RouterLink>
+        <RouterLink v-else-if="!isAuthPage" to="/user/login" class="login-btn">登录</RouterLink>
       </div>
     </div>
   </a-layout-header>
@@ -54,7 +56,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
@@ -64,6 +66,7 @@ import { LogoutOutlined, UserOutlined } from '@ant-design/icons-vue'
 const loginUserStore = useLoginUserStore()
 const { loginUser } = storeToRefs(loginUserStore)
 const router = useRouter()
+const route = useRoute()
 const selectedKeys = ref<string[]>(['/'])
 
 router.afterEach((to) => {
@@ -72,6 +75,9 @@ router.afterEach((to) => {
 
 const isAdmin = computed(() => loginUser.value?.userRole === 'admin')
 const isLoggedIn = computed(() => !!loginUser.value?.id)
+const isAuthPage = computed(
+  () => route.path === '/user/login' || route.path === '/user/register',
+)
 
 const menuItems = computed(() => {
   const items = [
@@ -158,6 +164,21 @@ const doLogout = async () => {
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.brand-sep {
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 2px;
+}
+
+.brand-slogan {
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .nav-links {
@@ -235,6 +256,11 @@ const doLogout = async () => {
   .header-inner {
     flex-wrap: wrap;
     gap: 12px;
+  }
+
+  .brand-sep,
+  .brand-slogan {
+    display: none;
   }
 
   .nav-links {

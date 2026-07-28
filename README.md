@@ -1,22 +1,23 @@
 # Positive AI Code
 
-一句话生成网站：Spring Boot + Vue 3 的 AI 零代码应用生成平台。
+一句话呈所想：Spring Boot + Vue 3 的 AI 零代码应用生成平台。
 
 ## 功能概览
 
 - **对话生成**：支持 HTML / 原生多文件 / Vue 项目三种模式，SSE 流式出码与右侧实时预览
 - **案例广场**：精选应用展示，分类标签（最多 3 个）、排序与分页
+- **登录注册**：左右分栏 + Peek-Free 风格角色联动动画（眼球跟随、眨眼、密码防偷看）
 - **个人中心**：资料修改、密码修改；「我的应用」管理与删除
 - **管理后台**：用户管理、应用管理、案例分类管理（仅管理员）
 - **部署与封面**：一键部署；代码落盘后异步截取首页作列表封面（与预览 iframe 无关）
-- **固定品牌 Logo**：生成站统一注入项目内吉祥物 Logo；本站顶栏使用豆包图标
+- **品牌体验**：主页薄荷→天蓝柔和渐变；顶栏 / 页脚「Positive · 一句话呈所想」，页脚含 GitHub 入口
 
 ## 技术栈
 
 | 端 | 技术 |
 | --- | --- |
 | 后端 | Java 21、Spring Boot 3.5、MyBatis-Flex、LangChain4j、LangGraph4j、Redis、MySQL、COS |
-| 前端 | Vue 3、TypeScript、Vite、Ant Design Vue、Pinia |
+| 前端 | Vue 3、TypeScript、Vite、Ant Design Vue、Pinia、GSAP |
 
 ## 目录结构
 
@@ -83,3 +84,5 @@ npm run dev
 ## 相关文档
 
 - 前端说明：[positive-ai-code-frontend/README.md](positive-ai-code-frontend/README.md)
+- 登录角色动画参考：[Peek-Free-Login](https://github.com/liuqingsong1528/Peek-Free-Login)（MIT）
+- 仓库地址：https://github.com/2871273484/Positive-ai-code

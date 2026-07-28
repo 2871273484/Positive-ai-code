@@ -377,18 +377,16 @@ onUnmounted(() => {
   <div id="homePage">
     <div class="ambient ambient-a" aria-hidden="true" />
     <div class="ambient ambient-b" aria-hidden="true" />
+    <div class="ambient ambient-c" aria-hidden="true" />
+    <div class="aurora" aria-hidden="true" />
     <div class="noise" aria-hidden="true" />
 
     <div class="container">
       <section class="hero">
         <p class="brand-mark">Positive</p>
-        <h1 class="hero-title">一句话，呈所想</h1>
-        <p class="hero-desc">与 AI 对话，创建应用和网站</p>
-
-        <div class="prompt-shell">
-          <!-- 输入框右上角吉祥物动画（参考秒哒坐姿角色） -->
-          <div class="mascot" aria-hidden="true">
-            <span class="mascot-sparkle" />
+        <h1 class="hero-title">
+          <span>一句话</span>
+          <span class="mascot mascot-in-title" aria-hidden="true">
             <svg class="mascot-body" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <linearGradient id="mascotGrad" x1="20%" y1="10%" x2="80%" y2="90%">
@@ -402,6 +400,43 @@ onUnmounted(() => {
               </defs>
               <ellipse cx="60" cy="68" rx="38" ry="34" fill="url(#mascotGrad)" filter="url(#mascotSoft)" />
               <ellipse cx="60" cy="42" rx="30" ry="28" fill="url(#mascotGrad)" />
+              <circle cx="48" cy="40" r="4.2" fill="#0f172a" class="mascot-eye left" />
+              <circle cx="72" cy="40" r="4.2" fill="#0f172a" class="mascot-eye right" />
+              <path
+                d="M50 52 Q60 60 70 52"
+                fill="none"
+                stroke="#0f172a"
+                stroke-width="3"
+                stroke-linecap="round"
+                class="mascot-mouth"
+              />
+              <ellipse cx="38" cy="50" rx="6" ry="3.5" fill="#7dd3fc" opacity="0.55" />
+              <ellipse cx="82" cy="50" rx="6" ry="3.5" fill="#7dd3fc" opacity="0.55" />
+              <ellipse cx="44" cy="86" rx="9" ry="6" fill="#0369a1" opacity="0.35" class="mascot-foot" />
+              <ellipse cx="76" cy="86" rx="9" ry="6" fill="#0369a1" opacity="0.35" class="mascot-foot" />
+            </svg>
+          </span>
+          <span>呈所想</span>
+        </h1>
+        <p class="hero-desc">与 AI 对话，创建应用和网站</p>
+
+        <div class="prompt-shell">
+          <!-- 输入框右上角吉祥物 -->
+          <div class="mascot mascot-on-prompt" aria-hidden="true">
+            <span class="mascot-sparkle" />
+            <svg class="mascot-body" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="mascotGradPrompt" x1="20%" y1="10%" x2="80%" y2="90%">
+                  <stop offset="0%" stop-color="#7dd3fc" />
+                  <stop offset="55%" stop-color="#38bdf8" />
+                  <stop offset="100%" stop-color="#0284c7" />
+                </linearGradient>
+                <filter id="mascotSoftPrompt" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#0284c7" flood-opacity="0.25" />
+                </filter>
+              </defs>
+              <ellipse cx="60" cy="68" rx="38" ry="34" fill="url(#mascotGradPrompt)" filter="url(#mascotSoftPrompt)" />
+              <ellipse cx="60" cy="42" rx="30" ry="28" fill="url(#mascotGradPrompt)" />
               <circle cx="48" cy="40" r="4.2" fill="#0f172a" class="mascot-eye left" />
               <circle cx="72" cy="40" r="4.2" fill="#0f172a" class="mascot-eye right" />
               <path
@@ -574,7 +609,7 @@ onUnmounted(() => {
 
 <style scoped>
 #homePage {
-  --color-bg: #f4faf8;
+  --color-bg: #eef8f6;
   --color-fg: #0f172a;
   --color-muted: #64748b;
   --color-mint: #7dd3c0;
@@ -591,38 +626,69 @@ onUnmounted(() => {
   overflow-x: hidden;
   font-family: 'Nunito Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: var(--color-fg);
-  background:
-    radial-gradient(900px 520px at 12% 8%, rgba(125, 211, 192, 0.45), transparent 60%),
-    radial-gradient(800px 480px at 88% 18%, rgba(147, 197, 253, 0.4), transparent 55%),
-    radial-gradient(700px 420px at 50% 92%, rgba(186, 230, 253, 0.35), transparent 55%),
-    linear-gradient(180deg, #ffffff 0%, #f4faf8 42%, #e8f4ff 100%);
+  /* 渐变已提到全局 body，此处透明以保持内外一致 */
+  background: transparent;
 }
 
 .ambient {
   position: fixed;
   border-radius: 50%;
-  filter: blur(40px);
+  filter: blur(48px);
   pointer-events: none;
   z-index: 0;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 
 .ambient-a {
-  width: 280px;
-  height: 280px;
-  top: 12%;
-  left: 8%;
-  background: rgba(125, 211, 192, 0.55);
-  animation: floatA 12s var(--ease) infinite alternate;
+  width: 420px;
+  height: 420px;
+  top: -4%;
+  left: -2%;
+  background: rgba(110, 231, 183, 0.55);
+  animation: floatA 14s var(--ease) infinite alternate;
 }
 
 .ambient-b {
-  width: 320px;
-  height: 320px;
-  top: 20%;
-  right: 6%;
-  background: rgba(147, 197, 253, 0.5);
-  animation: floatB 14s var(--ease) infinite alternate;
+  width: 460px;
+  height: 460px;
+  top: 8%;
+  right: -6%;
+  background: rgba(125, 211, 252, 0.5);
+  animation: floatB 16s var(--ease) infinite alternate;
+}
+
+.ambient-c {
+  width: 380px;
+  height: 380px;
+  bottom: 8%;
+  left: 28%;
+  background: rgba(196, 181, 253, 0.28);
+  animation: floatA 18s var(--ease) infinite alternate-reverse;
+}
+
+/* 斜向光带，贴近参考图的 aurora 感 */
+.aurora {
+  position: fixed;
+  inset: -20% -10%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    linear-gradient(
+      118deg,
+      transparent 0%,
+      transparent 28%,
+      rgba(255, 255, 255, 0.55) 36%,
+      rgba(186, 230, 253, 0.28) 42%,
+      transparent 50%,
+      transparent 58%,
+      rgba(255, 255, 255, 0.4) 64%,
+      rgba(167, 243, 208, 0.22) 70%,
+      transparent 78%,
+      transparent 100%
+    );
+  mix-blend-mode: soft-light;
+  transform: rotate(-6deg);
 }
 
 .noise {
@@ -630,7 +696,7 @@ onUnmounted(() => {
   inset: 0;
   pointer-events: none;
   z-index: 1;
-  opacity: 0.035;
+  opacity: 0.055;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -658,6 +724,10 @@ onUnmounted(() => {
 
 .hero-title {
   margin: 0 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-family: 'Varela Round', 'Nunito Sans', sans-serif;
   font-size: clamp(36px, 6vw, 56px);
   font-weight: 700;
@@ -690,15 +760,29 @@ onUnmounted(() => {
 }
 
 .mascot {
+  pointer-events: none;
+  animation: mascotFloat 3.2s var(--ease) infinite;
+  transform-origin: 50% 85%;
+}
+
+.mascot-in-title {
+  position: relative;
+  display: inline-flex;
+  width: 1.15em;
+  height: 1.15em;
+  flex-shrink: 0;
+  margin: 0 2px;
+  vertical-align: middle;
+  animation: none;
+}
+
+.mascot-on-prompt {
   position: absolute;
   top: -52px;
   right: 28px;
   width: 96px;
   height: 96px;
   z-index: 3;
-  pointer-events: none;
-  animation: mascotFloat 3.2s var(--ease) infinite;
-  transform-origin: 50% 85%;
 }
 
 .mascot-body {
@@ -706,6 +790,14 @@ onUnmounted(() => {
   height: 100%;
   display: block;
   filter: drop-shadow(0 10px 18px rgba(14, 165, 233, 0.28));
+}
+
+.mascot-in-title .mascot-body {
+  filter: drop-shadow(0 6px 12px rgba(14, 165, 233, 0.28));
+}
+
+.mascot-in-title .mascot-eye {
+  animation: none;
 }
 
 .mascot-sparkle {
@@ -1174,7 +1266,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
-  .mascot {
+  .hero-title {
+    gap: 4px;
+  }
+
+  .mascot-on-prompt {
     width: 72px;
     height: 72px;
     top: -38px;
@@ -1185,6 +1281,8 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .ambient-a,
   .ambient-b,
+  .ambient-c,
+  .aurora,
   .submit-loading,
   .prompt-shell,
   .pill,
