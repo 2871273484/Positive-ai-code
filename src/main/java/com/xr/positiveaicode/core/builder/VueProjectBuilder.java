@@ -1,15 +1,40 @@
 package com.xr.positiveaicode.core.builder;
 
 import cn.hutool.core.util.RuntimeUtil;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
 public class VueProjectBuilder {
+
+    /**
+     * 同时允许的 npm 构建数量（默认 1，避免多任务叠满内存）
+     */
+    @Value("${code.vue-build.max-concurrent:1}")
+    private int maxConcurrent;
+
+    /**
+     * 等待获取构建锁的超时时间（秒）
+     */
+    @Value("${code.vue-build.acquire-timeout-seconds:120}")
+    private long acquireTimeoutSeconds;
+
+    private Semaphore buildLock;
+
+    @PostConstruct
+    public void init() {
+        int permits = Math.max(1, maxConcurrent);
+        this.buildLock = new Semaphore(permits, true);
+        log.info("Vue 构建并发锁已初始化: maxConcurrent={}, acquireTimeoutSeconds={}",
+                permits, acquireTimeoutSeconds);
+    }
 
     /**
      * 异步构建项目（不阻塞主流程）
@@ -28,12 +53,38 @@ public class VueProjectBuilder {
     }
 
     /**
-     * 构建 Vue 项目
+     * 构建 Vue 项目（全局并发锁保护，同一时间最多 max-concurrent 个 npm 任务）
      *
      * @param projectPath 项目根目录路径
      * @return 是否构建成功
      */
     public boolean buildProject(String projectPath) {
+        boolean acquired = false;
+        try {
+            log.info("等待获取 Vue 构建锁: path={}, availablePermits={}",
+                    projectPath, buildLock.availablePermits());
+            acquired = buildLock.tryAcquire(acquireTimeoutSeconds, TimeUnit.SECONDS);
+            if (!acquired) {
+                log.warn("Vue 构建繁忙，获取锁超时（{}秒），跳过本次构建: {}",
+                        acquireTimeoutSeconds, projectPath);
+                return false;
+            }
+            log.info("已获取 Vue 构建锁，开始构建: {}", projectPath);
+            return doBuildProject(projectPath);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("等待 Vue 构建锁被中断: {}", projectPath);
+            return false;
+        } finally {
+            if (acquired) {
+                buildLock.release();
+                log.info("已释放 Vue 构建锁: path={}, availablePermits={}",
+                        projectPath, buildLock.availablePermits());
+            }
+        }
+    }
+
+    private boolean doBuildProject(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
             log.error("项目目录不存在: {}", projectPath);
@@ -94,13 +145,6 @@ public class VueProjectBuilder {
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("windows");
     }
-
-    /**
-     * 构建 Vue 项目
-     *
-     * @param baseCommand 项目目录
-     * @return 是否构建成功
-     */
 
     private String buildCommand(String baseCommand) {
         if (isWindows()) {

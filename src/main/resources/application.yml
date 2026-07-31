@@ -46,3 +46,7 @@ code:
   deploy-host: http://localhost:8080/api/deployed
   # 留空则使用 {user.dir}/tmp/code_deploy
   deploy-root:
+  # Vue 项目 npm 构建并发控制（防止多个 npm 同时跑把内存打爆）
+  vue-build:
+    max-concurrent: 1
+    acquire-timeout-seconds: 120
