@@ -227,11 +227,23 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
-                        // 执行 Vue 项目构建（同步执行，确保预览时项目已就绪）
+                        // 先结束 SSE，再异步 npm 构建。
+                        // 若在回调里同步 build，会占住流式线程/CPU，其他会话容易空闲超时被前端掐断。
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                        vueProjectBuilder.buildProject(projectPath);
-                        eventPublisher.publishEvent(new AppCodeGeneratedEvent(this, appId));
                         sink.complete();
+                        Thread.ofVirtual().name("vue-builder-" + appId).start(() -> {
+                            try {
+                                log.info("异步开始构建 Vue 项目, appId={}, path={}", appId, projectPath);
+                                boolean ok = vueProjectBuilder.buildProject(projectPath);
+                                if (ok) {
+                                    eventPublisher.publishEvent(new AppCodeGeneratedEvent(this, appId));
+                                } else {
+                                    log.warn("异步构建 Vue 项目未成功（可能构建锁繁忙或 npm 失败）, appId={}", appId);
+                                }
+                            } catch (Exception e) {
+                                log.error("异步构建 Vue 项目异常, appId={}: {}", appId, e.getMessage(), e);
+                            }
+                        });
                     })
                     .onError((Throwable error) -> {
                         error.printStackTrace();
