@@ -1,14 +1,22 @@
 package com.xr.positiveaicode.core.builder;
 
-import cn.hutool.core.util.RuntimeUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Component
@@ -26,14 +34,20 @@ public class VueProjectBuilder {
     @Value("${code.vue-build.acquire-timeout-seconds:120}")
     private long acquireTimeoutSeconds;
 
+    /**
+     * Node 堆上限（MB）。小内存服务器务必压低，避免 npm 与 JVM 抢内存触发 OOM Killer。
+     */
+    @Value("${code.vue-build.node-max-old-space-size-mb:512}")
+    private int nodeMaxOldSpaceSizeMb;
+
     private Semaphore buildLock;
 
     @PostConstruct
     public void init() {
         int permits = Math.max(1, maxConcurrent);
         this.buildLock = new Semaphore(permits, true);
-        log.info("Vue 构建并发锁已初始化: maxConcurrent={}, acquireTimeoutSeconds={}",
-                permits, acquireTimeoutSeconds);
+        log.info("Vue 构建并发锁已初始化: maxConcurrent={}, acquireTimeoutSeconds={}, nodeMaxOldSpaceSizeMb={}",
+                permits, acquireTimeoutSeconds, nodeMaxOldSpaceSizeMb);
     }
 
     /**
@@ -42,7 +56,6 @@ public class VueProjectBuilder {
      * @param projectPath 项目路径
      */
     public void buildProjectAsync(String projectPath) {
-        // 在单独的线程中执行构建，避免阻塞主流程
         Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis()).start(() -> {
             try {
                 buildProject(projectPath);
@@ -90,24 +103,20 @@ public class VueProjectBuilder {
             log.error("项目目录不存在: {}", projectPath);
             return false;
         }
-        // 检查 package.json 是否存在
         File packageJson = new File(projectDir, "package.json");
         if (!packageJson.exists()) {
             log.error("package.json 文件不存在: {}", packageJson.getAbsolutePath());
             return false;
         }
         log.info("开始构建 Vue 项目: {}", projectPath);
-        // 执行 npm install
         if (!executeNpmInstall(projectDir)) {
-            log.error("npm install 执行失败");
+            log.error("npm install 执行失败（若进程被系统直接杀掉，请检查服务器内存/swap，并查看 dmesg | grep -i oom）");
             return false;
         }
-        // 执行 npm run build
         if (!executeNpmBuild(projectDir)) {
             log.error("npm run build 执行失败");
             return false;
         }
-        // 验证 dist 目录是否生成
         File distDir = new File(projectDir, "dist");
         if (!distDir.exists()) {
             log.error("构建完成但 dist 目录未生成: {}", distDir.getAbsolutePath());
@@ -117,31 +126,34 @@ public class VueProjectBuilder {
         return true;
     }
 
-
-    /**
-     * 执行 npm install 命令
-     */
     private boolean executeNpmInstall(File projectDir) {
-        log.info("执行 npm install...");
-        String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 300); // 5分钟超时
+        // 已有完整依赖则跳过，减少重复占内存
+        File nodeModules = new File(projectDir, "node_modules");
+        String[] installed = nodeModules.isDirectory() ? nodeModules.list() : null;
+        if (installed != null && installed.length > 0) {
+            log.info("检测到已有 node_modules，跳过 npm install: {}", projectDir.getAbsolutePath());
+            return true;
+        }
+        log.info("执行 npm install（限制 Node 堆约 {}MB）...", nodeMaxOldSpaceSizeMb);
+        List<String> command = new ArrayList<>();
+        command.add(buildCommand("npm"));
+        command.add("install");
+        command.add("--no-audit");
+        command.add("--no-fund");
+        command.add("--progress=false");
+        command.add("--prefer-offline");
+        return executeCommand(projectDir, command, 300);
     }
 
-    /**
-     * 执行 npm run build 命令
-     */
     private boolean executeNpmBuild(File projectDir) {
-        log.info("执行 npm run build...");
-        String command = String.format("%s run build", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180); // 3分钟超时
+        log.info("执行 npm run build（限制 Node 堆约 {}MB）...", nodeMaxOldSpaceSizeMb);
+        List<String> command = new ArrayList<>();
+        command.add(buildCommand("npm"));
+        command.add("run");
+        command.add("build");
+        return executeCommand(projectDir, command, 180);
     }
 
-
-    /**
-     * 判断当前操作系统是否为 Windows
-     *
-     * @return true 表示是 Windows，false 表示不是 Windows
-     */
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("windows");
     }
@@ -154,40 +166,123 @@ public class VueProjectBuilder {
     }
 
     /**
-     * 执行命令
-     *
-     * @param workingDir     工作目录
-     * @param command        命令字符串
-     * @param timeoutSeconds 超时时间（秒）
-     * @return 是否执行成功
+     * 安全执行外部命令：排空输出避免管道堵死；限制 Node 内存；Linux 下提高子进程 OOM 分数，
+     * 内存不足时优先杀 npm 而不是 JVM。
      */
-    private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
+    private boolean executeCommand(File workingDir, List<String> command, int timeoutSeconds) {
+        Process process = null;
         try {
-            log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
-            Process process = RuntimeUtil.exec(
-                    null,
-                    workingDir,
-                    command.split("\\s+") // 命令分割为数组
-            );
-            // 等待进程完成，设置超时
+            log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), String.join(" ", command));
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.directory(workingDir);
+            pb.redirectErrorStream(true);
+            applyBuildEnvironment(pb.environment());
+
+            process = pb.start();
+            preferKillChildOnOom(process);
+
+            AtomicReference<String> tailRef = new AtomicReference<>("");
+            Process running = process;
+            Thread drainer = Thread.ofVirtual().name("npm-out-drainer").start(() ->
+                    tailRef.set(drainProcessOutput(running)));
+
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
-                process.destroyForcibly();
+                log.error("命令执行超时（{}秒），强制终止进程树", timeoutSeconds);
+                destroyProcessTree(process);
+                drainer.join(2000);
+                log.error("超时前输出尾部:\n{}", tailRef.get());
                 return false;
             }
+            drainer.join(5000);
             int exitCode = process.exitValue();
             if (exitCode == 0) {
-                log.info("命令执行成功: {}", command);
+                log.info("命令执行成功: {}", String.join(" ", command));
                 return true;
-            } else {
-                log.error("命令执行失败，退出码: {}", exitCode);
-                return false;
             }
+            // 137/143 常见于被 SIGKILL/SIGTERM（含 OOM Killer）
+            if (exitCode == 137 || exitCode == 143) {
+                log.error("命令被系统终止（exit={}），高度疑似内存不足被 OOM Killer 杀掉。"
+                                + "请给服务器加 swap/内存，或调低 code.vue-build.node-max-old-space-size-mb。"
+                                + "输出尾部:\n{}",
+                        exitCode, tailRef.get());
+            } else {
+                log.error("命令执行失败，退出码: {}，输出尾部:\n{}", exitCode, tailRef.get());
+            }
+            return false;
         } catch (Exception e) {
-            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
+            log.error("执行命令失败: {}, 错误信息: {}", String.join(" ", command), e.getMessage(), e);
+            if (process != null) {
+                destroyProcessTree(process);
+            }
             return false;
         }
     }
 
+    private void applyBuildEnvironment(Map<String, String> env) {
+        int heapMb = Math.max(256, nodeMaxOldSpaceSizeMb);
+        String nodeOpt = "--max-old-space-size=" + heapMb;
+        String existing = env.get("NODE_OPTIONS");
+        if (existing == null || existing.isBlank()) {
+            env.put("NODE_OPTIONS", nodeOpt);
+        } else if (!existing.contains("max-old-space-size")) {
+            env.put("NODE_OPTIONS", existing.trim() + " " + nodeOpt);
+        }
+        // 减少 npm 额外开销
+        env.put("NPM_CONFIG_FUND", "false");
+        env.put("NPM_CONFIG_AUDIT", "false");
+        env.put("NPM_CONFIG_PROGRESS", "false");
+        env.put("CI", "true");
+        // 避免部分环境下打开过多并行网络请求撑爆内存
+        env.putIfAbsent("npm_config_maxsockets", "3");
+    }
+
+    /**
+     * Linux：把子进程标成更易被 OOM 选中的目标，保护后端 JVM。
+     */
+    private void preferKillChildOnOom(Process process) {
+        if (isWindows()) {
+            return;
+        }
+        try {
+            long pid = process.pid();
+            Path scorePath = Path.of("/proc", String.valueOf(pid), "oom_score_adj");
+            if (Files.isWritable(scorePath)) {
+                Files.writeString(scorePath, "800");
+                log.info("已提升 npm 子进程 OOM 分数: pid={}, oom_score_adj=800", pid);
+            }
+        } catch (Exception e) {
+            log.debug("无法调整子进程 oom_score_adj（可忽略）: {}", e.getMessage());
+        }
+    }
+
+    private String drainProcessOutput(Process process) {
+        StringBuilder tail = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                // 只保留尾部，避免日志/内存暴涨
+                if (tail.length() > 12000) {
+                    tail.delete(0, tail.length() - 8000);
+                }
+                tail.append(line).append('\n');
+                if (line.toLowerCase().contains("error") || line.toLowerCase().contains("killed")) {
+                    log.warn("[npm] {}", line);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("读取命令输出中断: {}", e.getMessage());
+        }
+        return tail.toString();
+    }
+
+    private void destroyProcessTree(Process process) {
+        try {
+            process.toHandle().descendants().forEach(ProcessHandle::destroyForcibly);
+        } catch (Exception ignored) {
+            // ignore
+        }
+        process.destroyForcibly();
+    }
 }

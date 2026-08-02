@@ -50,3 +50,5 @@ code:
   vue-build:
     max-concurrent: 1
     acquire-timeout-seconds: 120
+    # Node 堆上限（MB）。小内存机建议 384~512；过大易与 JVM 一起触发 OOM Killer
+    node-max-old-space-size-mb: 384
