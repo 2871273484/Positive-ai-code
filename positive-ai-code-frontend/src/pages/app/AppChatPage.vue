@@ -298,6 +298,8 @@ const isGenerating = ref(false)
 const generatingStatus = ref('')
 const messagesContainer = ref<HTMLElement>()
 const PROGRESS_PREFIX = '[[PROGRESS]]'
+/** 后端 Vue 构建完成后附带的标记，收到后刷新右侧预览 */
+const BUILD_READY_MARKER = '[[BUILD_READY]]'
 
 // 对话历史相关
 const loadingHistory = ref(false)
@@ -609,7 +611,8 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       }, delayMs)
     }
 
-    // 进度心跳不能无限续命：无新代码约 40s 则结束，避免右侧一直转圈
+    // 进度心跳不能无限续命：无新代码且无进度约 40s 则结束。
+    // Vue 构建阶段只有进度没有新代码，有进度时不能当空闲掐断。
     const CODE_IDLE_MS = 40000
     const TOTAL_IDLE_MS = 90000
     const stallTimer = window.setInterval(() => {
@@ -618,7 +621,9 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         return
       }
       const now = Date.now()
-      const codeIdle = now - lastCodeAt > CODE_IDLE_MS && fullContent.length > 0
+      const progressStale = now - lastProgressAt > CODE_IDLE_MS
+      const codeIdle =
+        now - lastCodeAt > CODE_IDLE_MS && fullContent.length > 0 && progressStale
       const totalIdle = now - lastProgressAt > TOTAL_IDLE_MS
       if (codeIdle || totalIdle) {
         finishStream({
@@ -651,7 +656,15 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         // 进度：只更新右侧状态；已有代码时不要覆盖左侧正文
         if (typeof content === 'string' && content.startsWith(PROGRESS_PREFIX)) {
-          const statusText = content.slice(PROGRESS_PREFIX.length)
+          let statusText = content.slice(PROGRESS_PREFIX.length)
+          // Vue 构建完成：立刻刷新预览（不等 done，done 紧随其后）
+          if (statusText.includes(BUILD_READY_MARKER)) {
+            statusText = statusText.replace(BUILD_READY_MARKER, '').trim() || '构建完成，正在加载预览…'
+            generatingStatus.value = statusText
+            updatePreview()
+            scrollToBottom()
+            return
+          }
           generatingStatus.value = statusText
           if (!fullContent) {
             messages.value[aiMessageIndex].loading = true
@@ -727,13 +740,14 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   generatingStatus.value = ''
 }
 
-// 更新预览
+// 更新预览（带时间戳强制 iframe 重新加载，避免沿用构建前的空白页）
 const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-    const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
-    previewUrl.value = newPreviewUrl
-    previewReady.value = true
+    const basePreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
+    const sep = basePreviewUrl.includes('?') ? '&' : '?'
+    previewUrl.value = `${basePreviewUrl}${sep}t=${Date.now()}`
+    previewReady.value = false
   }
 }
 

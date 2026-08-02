@@ -38,6 +38,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class AiCodeGeneratorFacade {
 
+    /** 与 CodeGenWorkflow / 前端约定的进度前缀 */
+    private static final String STREAM_PROGRESS_PREFIX = "[[PROGRESS]]";
+    /** 构建完成后附在进度消息中，前端据此刷新预览 */
+    private static final String STREAM_BUILD_READY_MARKER = "[[BUILD_READY]]";
+
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
 
@@ -227,21 +232,49 @@ public class AiCodeGeneratorFacade {
                         sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
                     })
                     .onCompleteResponse((ChatResponse response) -> {
-                        // 先结束 SSE，再异步 npm 构建。
-                        // 若在回调里同步 build，会占住流式线程/CPU，其他会话容易空闲超时被前端掐断。
+                        // 在虚拟线程中构建：不占 SSE 回调线程，但保持流未结束，
+                        // 构建完成后推送 BUILD_READY，再 complete，前端据此刷新预览。
                         String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                        sink.complete();
                         Thread.ofVirtual().name("vue-builder-" + appId).start(() -> {
+                            AtomicBoolean building = new AtomicBoolean(true);
+                            Thread heartbeat = Thread.ofVirtual().name("vue-build-hb-" + appId).start(() -> {
+                                int ticks = 0;
+                                while (building.get()) {
+                                    try {
+                                        Thread.sleep(5000L);
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        break;
+                                    }
+                                    if (!building.get()) {
+                                        break;
+                                    }
+                                    ticks++;
+                                    sink.next(STREAM_PROGRESS_PREFIX + "正在构建 Vue 预览（npm），已等待 "
+                                            + (ticks * 5) + " 秒…");
+                                }
+                            });
                             try {
+                                sink.next(STREAM_PROGRESS_PREFIX + "代码已生成，正在构建预览包，请稍候…");
                                 log.info("异步开始构建 Vue 项目, appId={}, path={}", appId, projectPath);
                                 boolean ok = vueProjectBuilder.buildProject(projectPath);
                                 if (ok) {
                                     eventPublisher.publishEvent(new AppCodeGeneratedEvent(this, appId));
+                                    // 前端识别 [[BUILD_READY]] 后刷新预览
+                                    sink.next(STREAM_PROGRESS_PREFIX + STREAM_BUILD_READY_MARKER
+                                            + "构建完成，正在加载预览…");
+                                    log.info("Vue 项目构建完成，已通知前端刷新预览, appId={}", appId);
                                 } else {
                                     log.warn("异步构建 Vue 项目未成功（可能构建锁繁忙或 npm 失败）, appId={}", appId);
+                                    sink.next(STREAM_PROGRESS_PREFIX + "构建未成功，预览可能暂时不可用");
                                 }
                             } catch (Exception e) {
                                 log.error("异步构建 Vue 项目异常, appId={}: {}", appId, e.getMessage(), e);
+                                sink.next(STREAM_PROGRESS_PREFIX + "构建异常，预览可能暂时不可用");
+                            } finally {
+                                building.set(false);
+                                heartbeat.interrupt();
+                                sink.complete();
                             }
                         });
                     })
